@@ -124,7 +124,10 @@ button {
     -1px 0 2px rgba(0, 0, 0, 0.92);
   filter:
     drop-shadow(0 0 calc(1px + var(--node-label-glow, 0) * 5px) color-mix(in srgb, var(--node-label-color, #38bdf8) 26%, transparent));
-  transition: opacity 1400ms ease-out, filter 1700ms ease-out, color 1400ms ease-out;
+  transition:
+    opacity 4200ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 5200ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 4800ms cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform, opacity;
 }
 

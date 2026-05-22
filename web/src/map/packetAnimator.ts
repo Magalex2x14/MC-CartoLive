@@ -5,13 +5,13 @@ import { isMappableEndpoint } from './geo';
 
 export const PACKET_SINGLE_HOP_DURATION_MS = 2100;
 export const PACKET_MAX_TRAVEL_DURATION_MS = 3200;
-export const PACKET_AFTERGLOW_MS = 900;
+export const PACKET_AFTERGLOW_MS = 1200;
 export const ROUTE_TRACE_WINDOW_MS = 15 * 60_000;
 export const OBSERVER_AURA_WINDOW_MS = 90_000;
 export const OBSERVER_BURST_DURATION_MS = 2600;
-export const OBSERVER_BURST_AFTERGLOW_MS = 1400;
-export const ROUTE_RESIDUE_ALPHA_CAP = 0.14;
-export const OBSERVER_AURA_ALPHA_CAP = 0.08;
+export const OBSERVER_BURST_AFTERGLOW_MS = 2200;
+export const ROUTE_RESIDUE_ALPHA_CAP = 0.12;
+export const OBSERVER_AURA_ALPHA_CAP = 0.07;
 export const CANVAS_MAX_DPR = 1.5;
 export const RESIDUE_IDLE_FRAME_INTERVAL_MS = 90;
 export const MASK_CACHE_INTERVAL_MS = 140;
@@ -394,7 +394,7 @@ export class PacketAnimator {
     this.ctx.lineJoin = 'round';
     for (const trace of aggregates) {
       const age = now - trace.latestAt;
-      const fade = Math.max(0, 1 - age / ROUTE_TRACE_WINDOW_MS);
+      const fade = Math.max(0, 1 - age / OBSERVER_AURA_WINDOW_MS);
       const intensity = Math.min(1, Math.log1p(trace.count) / Math.log1p(18));
       const from = this.map.project([trace.from.lng, trace.from.lat]);
       const to = this.map.project([trace.to.lng, trace.to.lat]);
@@ -479,7 +479,7 @@ export class PacketAnimator {
     const afterglowProgress = Math.max(0, Math.min(1, (elapsed - active.duration) / active.afterglowDuration));
     const color = payloadVisual(active.burst.payloadTypeName).color;
     const point = this.map.project([active.burst.location.lng, active.burst.location.lat]);
-    const alpha = elapsed > active.duration ? 0.34 * (1 - afterglowProgress) : 0.72;
+    const alpha = elapsed > active.duration ? 0.28 * (1 - afterglowProgress) : 0.58;
     if (alpha <= 0.01) return;
 
     this.ctx.save();

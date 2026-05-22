@@ -23,6 +23,7 @@ import {
   NODE_ACTIVITY_UPDATE_MS,
   NODE_ACTIVITY_WINDOW_MS,
   NODE_LABEL_UPDATE_MS,
+  nodeLabelActivityProgress,
   nodeActivityGlow,
   nodeActivityHeat,
   nodeLastHeardAgeLabel,
@@ -140,13 +141,13 @@ const NODE_LAYER = 'node-symbols';
 const OBSERVER_LAYER = 'observer-symbols';
 const ROUTE_LAYER = 'route-lines';
 const ROUTE_HIT_LAYER = 'route-hit-lines';
-const NODE_ACTIVE_LABEL_VISIBLE_MS = 10_000;
-const NODE_LABEL_RECENT_VISIBLE_MS = 32_000;
+const NODE_ACTIVE_LABEL_VISIBLE_MS = 24_000;
+const NODE_LABEL_RECENT_VISIBLE_MS = 90_000;
 const MESSAGE_BUBBLE_LIFETIME_MS = 7_200;
 const MESSAGE_BUBBLE_MAX_WIDTH_PX = 440;
 const MESSAGE_BUBBLE_EDGE_PADDING_PX = 16;
-const ROUTE_PAYLOAD_GLOW_MS = 3_800;
-const ROUTE_PAYLOAD_GLOW_UPDATE_MS = 120;
+const ROUTE_PAYLOAD_GLOW_MS = 5_200;
+const ROUTE_PAYLOAD_GLOW_UPDATE_MS = 90;
 const ROUTE_VISUAL_CADENCE_MS = 150;
 const OBSERVER_VISUAL_CADENCE_MS = 105;
 const MAX_PENDING_ROUTE_VISUALS = 220;
@@ -1297,9 +1298,8 @@ function projectNodeLabels(
       const distanceKm = focus.neighbourDistanceKmByNodeID.get(node.id);
       const recentActivity = recentActivityByNodeID.get(node.id);
       const frequencyHeat = nodeActivityHeat(recentActivity?.hits.length ?? 0);
-      const rawActivityProgress = recentActive ? Math.max(0, 1 - ageMs / NODE_LABEL_RECENT_VISIBLE_MS) : 0;
-      const activityProgress = rawActivityProgress * rawActivityProgress * (3 - 2 * rawActivityProgress);
-      const pulseGlow = activityProgress * 0.28;
+      const activityProgress = recentActive ? nodeLabelActivityProgress(ageMs, NODE_LABEL_RECENT_VISIBLE_MS) : 0;
+      const pulseGlow = activityProgress * 0.18;
       const glow = selected
         ? Math.max(0.58, pulseGlow)
         : path
@@ -1310,7 +1310,7 @@ function projectNodeLabels(
             ? Math.max(0.52, pulseGlow)
             : pulseGlow;
       const ghostOpacity = showInactiveLabels ? (zoom >= 10 ? 0.12 : 0.055) : 0;
-      const activeOpacity = recentActive ? 0.22 + activityProgress * 0.24 : ghostOpacity;
+      const activeOpacity = recentActive ? ghostOpacity + 0.2 + activityProgress * 0.14 : ghostOpacity;
       const observerOpacity = observer ? Math.max(zoom >= 9 ? 0.72 : 0.58, activeOpacity) : activeOpacity;
       const opacity = selected
         ? 1
@@ -1330,7 +1330,7 @@ function projectNodeLabels(
           ? '#67e8f9'
           : observer
             ? '#fbbf24'
-            : activityProgress > 0.18
+            : activityProgress > 0.28
               ? nodeLabelHeatColor(heat)
               : '#b8c7d9';
       const age = neighbour && distanceKm !== undefined
@@ -1714,7 +1714,7 @@ function updateRoutePayloadGlowFeatureStates(map: maplibregl.Map, glows: Map<str
   let activeGlowCount = 0;
   for (const [routeID, glow] of glows.entries()) {
     const progress = Math.max(0, Math.min(1, (now - glow.startedAt) / ROUTE_PAYLOAD_GLOW_MS));
-    const intensity = Math.pow(1 - progress, 1.25);
+    const intensity = Math.pow(1 - progress, 0.72);
     if (now >= glow.expiresAt || intensity <= 0.01) {
       safeSetRouteFeatureState(map, routeID, { payloadGlow: 0, payloadGlowColor: glow.color });
       glows.delete(routeID);

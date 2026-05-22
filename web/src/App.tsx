@@ -18,6 +18,19 @@ import Legend from './components/Legend';
 import LinkBar from './components/LinkBar';
 import SelectionDrawer from './components/SelectionDrawer';
 import StatusBar from './components/StatusBar';
+import {
+  buildConnectivityGraph,
+  directConnectivity,
+  highlightedPathForTarget,
+  phonebookGroupsForNode
+} from './connectivity';
+import {
+  clearSelection as clearSelectionState,
+  selectNodeSelection,
+  selectPathTargetSelection,
+  selectRouteSelection,
+  type SelectionState
+} from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
 import type { PublicActivity, PublicLiveEnvelope } from './types';
 
@@ -29,10 +42,10 @@ export default function App() {
   const [followTraffic, setFollowTraffic] = useState(false);
   const [query, setQuery] = useState(() => sharedViewRef.current?.q ?? '');
   const [clearToken, setClearToken] = useState(0);
-  const [actionToken, setActionToken] = useState(0);
   const [mapAction, setMapAction] = useState<MapAction>(null);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(() => sharedViewRef.current?.node ?? null);
   const [selectedRouteID, setSelectedRouteID] = useState<string | null>(() => sharedViewRef.current?.route ?? null);
+  const [highlightedPathTargetID, setHighlightedPathTargetID] = useState<string | null>(null);
   const [mapView, setMapView] = useState<MapViewState | null>(() => {
     const shared = sharedViewRef.current;
     return shared ? { lat: shared.lat, lng: shared.lng, z: shared.z } : null;
@@ -43,6 +56,7 @@ export default function App() {
   const [initialNodesReceived, setInitialNodesReceived] = useState(false);
   const [positionedNodesRendered, setPositionedNodesRendered] = useState(false);
   const [nodeLoadFailed, setNodeLoadFailed] = useState(false);
+  const actionTokenRef = useRef(0);
   const pendingMessagesRef = useRef<PublicLiveEnvelope[]>([]);
   const flushMessagesRafRef = useRef<number | null>(null);
 
@@ -187,10 +201,12 @@ export default function App() {
   const visibleRoutes = useMemo(() => filterRoutes(state.routes, visibleNodeIDs, query), [state.routes, visibleNodeIDs, query]);
   const selectedNode = useMemo(() => state.nodes.find((node) => node.id === selectedNodeID) ?? null, [state.nodes, selectedNodeID]);
   const selectedRoute = useMemo(() => state.routes.find((route) => route.id === selectedRouteID) ?? null, [state.routes, selectedRouteID]);
-  const connectedRoutes = useMemo(() => {
-    if (!selectedNodeID) return [];
-    return state.routes.filter((route) => route.from.nodeId === selectedNodeID || route.to.nodeId === selectedNodeID).slice(0, 10);
-  }, [state.routes, selectedNodeID]);
+  const connectivityGraph = useMemo(() => buildConnectivityGraph(visibleNodes, visibleRoutes), [visibleNodes, visibleRoutes]);
+  const selectedConnectivity = useMemo(() => directConnectivity(connectivityGraph, selectedNodeID), [connectivityGraph, selectedNodeID]);
+  const phonebookGroups = useMemo(() => phonebookGroupsForNode(connectivityGraph, selectedNodeID), [connectivityGraph, selectedNodeID]);
+  const highlightedPath = useMemo(() => highlightedPathForTarget(phonebookGroups, highlightedPathTargetID), [phonebookGroups, highlightedPathTargetID]);
+  const highlightedPathRouteIDs = useMemo(() => new Set(highlightedPath?.routeIDs ?? []), [highlightedPath]);
+  const highlightedPathNodeIDs = useMemo(() => new Set(highlightedPath?.nodeIDs ?? []), [highlightedPath]);
 
   const activityClock = Math.max(liveClock, state.serverTime, state.activity[0]?.heardAt ?? 0, state.routeTraces.at(-1)?.heardAt ?? 0);
   const routeActivityByID = useMemo(() => summarizeRouteActivity(state.routeTraces, activityClock), [state.routeTraces, activityClock]);
@@ -209,25 +225,45 @@ export default function App() {
     [visibleRoutes, routeActivityByID]
   );
 
-  const dispatchMapAction = (next: Exclude<MapAction, null>['type'], value?: string) => {
-    const token = actionToken + 1;
-    setActionToken(token);
+  const dispatchMapAction = useCallback((next: Exclude<MapAction, null>['type'], value?: string) => {
+    const token = actionTokenRef.current + 1;
+    actionTokenRef.current = token;
     if (next === 'route' && value) setMapAction({ type: 'route', routeID: value, token });
     else if (next === 'node' && value) setMapAction({ type: 'node', nodeID: value, token });
     else if (next === 'latest-route') setMapAction({ type: 'latest-route', token });
     else setMapAction({ type: 'reset', token });
-  };
+  }, []);
 
-  const selectNode = (nodeID: string) => {
-    setSelectedNodeID(nodeID);
-    setSelectedRouteID(null);
-  };
+  const applySelection = useCallback((next: SelectionState) => {
+    setSelectedNodeID(next.selectedNodeID);
+    setSelectedRouteID(next.selectedRouteID);
+    setHighlightedPathTargetID(next.highlightedPathTargetID);
+  }, []);
 
-  const selectRoute = (routeID: string) => {
-    setSelectedRouteID(routeID);
-    setSelectedNodeID(null);
+  const clearSelection = useCallback(() => {
+    applySelection(clearSelectionState());
+  }, [applySelection]);
+
+  const selectNode = useCallback((nodeID: string) => {
+    applySelection(selectNodeSelection(nodeID));
+  }, [applySelection]);
+
+  const selectRoute = useCallback((routeID: string) => {
+    applySelection(selectRouteSelection(routeID));
     dispatchMapAction('route', routeID);
-  };
+  }, [applySelection, dispatchMapAction]);
+
+  const selectPhonebookPath = useCallback((nodeID: string) => {
+    applySelection(selectPathTargetSelection({ selectedNodeID, selectedRouteID, highlightedPathTargetID }, nodeID));
+  }, [applySelection, highlightedPathTargetID, selectedNodeID, selectedRouteID]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearSelection();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [clearSelection]);
 
   const shareView = useCallback(async () => {
     const view = mapView ?? (sharedViewRef.current ? { lat: sharedViewRef.current.lat, lng: sharedViewRef.current.lng, z: sharedViewRef.current.z } : null);
@@ -262,6 +298,8 @@ export default function App() {
         clearToken={clearToken}
         selectedNodeID={selectedNodeID}
         selectedRouteID={selectedRouteID}
+        highlightedPathRouteIDs={highlightedPathRouteIDs}
+        highlightedPathNodeIDs={highlightedPathNodeIDs}
         mapAction={mapAction}
         initialView={sharedViewRef.current}
         loading={loadingPositionedNodes}
@@ -269,6 +307,7 @@ export default function App() {
         onViewChange={handleViewChange}
         onSelectNode={selectNode}
         onSelectRoute={selectRoute}
+        onClearSelection={clearSelection}
       />
       {loadingPositionedNodes && <NodeLoadingToast failed={nodeLoadFailed} drawing={initialNodesReceived} />}
       <LinkBar />
@@ -324,7 +363,16 @@ export default function App() {
 
       <Legend />
       <HotRoutes routes={hotRoutes} selectedRouteID={selectedRouteID} routeActivityByID={routeActivityByID} onSelect={selectRoute} />
-      <SelectionDrawer node={selectedNode} route={selectedRoute} connectedRoutes={connectedRoutes} onRouteSelect={selectRoute} />
+      <SelectionDrawer
+        node={selectedNode}
+        route={selectedRoute}
+        connectedRoutes={selectedConnectivity.routes}
+        phonebookGroups={phonebookGroups}
+        selectedPathTargetID={highlightedPathTargetID}
+        onRouteSelect={selectRoute}
+        onPhonebookSelect={selectPhonebookPath}
+        onClose={clearSelection}
+      />
     </div>
   );
 }

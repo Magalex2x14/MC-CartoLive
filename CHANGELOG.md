@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+- Added node connectivity focus for repeaters, observers, rooms, companions, and sensors.
+- Highlighted directly served routes and directly connected nodes when a node is selected.
+- Added a reachable-node phonebook grouped by hop count, with path summaries and row-level path highlighting.
+- Added close buttons, Escape dismissal, and empty-map-click dismissal for node and route panels.
+- Kept the public HTTP and WebSocket API unchanged from 1.1.
+
 ## 1.1.0
 
 - Added the MC-CartoLive project bar with MeshCore Canada, GitHub, version, and build links.

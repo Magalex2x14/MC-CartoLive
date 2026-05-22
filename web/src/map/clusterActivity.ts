@@ -1,7 +1,7 @@
 import { payloadVisual } from '../payloadVisuals';
 
-export const CLUSTER_ACTIVITY_GLOW_MS = 3_500;
-export const CLUSTER_ACTIVITY_UPDATE_MS = 120;
+export const CLUSTER_ACTIVITY_GLOW_MS = 5_200;
+export const CLUSTER_ACTIVITY_UPDATE_MS = 100;
 export const CLUSTER_ACTIVITY_QUERY_RADIUS_PX = 72;
 
 export type ClusterID = string | number;
@@ -86,7 +86,7 @@ export function clusterActivityIntensity(glow: Pick<ClusterActivityGlow, 'starte
   if (now >= glow.expiresAt) return 0;
   const duration = Math.max(1, glow.expiresAt - glow.startedAt);
   const progress = Math.max(0, Math.min(1, (now - glow.startedAt) / duration));
-  return Math.pow(1 - progress, 1.2);
+  return Math.pow(1 - progress, 0.74);
 }
 
 export function pruneClusterActivityGlows(glows: Map<string, ClusterActivityGlow>, now: number): number {

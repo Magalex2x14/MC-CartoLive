@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v1.1
+# MeshCore MQTT Live Map v1.2
 
 Also known as **MC-CartoLive**.
 
@@ -30,6 +30,8 @@ Real public map data from the local production container:
 - Decodes MeshCore packet and payload types needed for public map rendering.
 - Resolves RF paths conservatively, without drawing guessed routes.
 - Shows low-zoom cluster activity and high-zoom route/node detail.
+- Lets users select repeaters, observers, rooms, companions, or sensors to highlight directly served RF routes and connected nodes.
+- Adds a reachable-node phonebook that groups valid public route paths by hop count and highlights a selected multi-hop path.
 - Animates live packet comets, observer bursts, route payload glows, and message bubbles.
 - Includes a compact project bar with MeshCore Canada, GitHub, version, and build links.
 - Provides a red Live Follow control for smoothly following areas with fresh packet movement.
@@ -138,7 +140,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v1.1 release path is clone + Docker Compose on a VPS or local
+The recommended v1.2 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

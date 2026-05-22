@@ -23,6 +23,7 @@ import {
   NODE_ACTIVITY_UPDATE_MS,
   NODE_ACTIVITY_WINDOW_MS,
   NODE_LABEL_UPDATE_MS,
+  nodeLabelActivityProgress,
   nodeActivityGlow,
   nodeActivityHeat,
   nodeLastHeardAgeLabel,
@@ -35,6 +36,8 @@ import {
   ROUTE_BASE_WIDTH,
   ROUTE_CONNECTED_OPACITY,
   ROUTE_CONNECTED_WIDTH,
+  ROUTE_PATH_OPACITY,
+  ROUTE_PATH_WIDTH,
   ROUTE_DIMMED_OPACITY
 } from './routeStyles';
 import { DETAIL_MIN_ZOOM, NODE_CLUSTER_MAX_ZOOM, type MapVisualMode, isClusterZoom, isDetailZoom, visualModeForZoom } from './zoomMode';
@@ -56,6 +59,8 @@ interface Props {
   clearToken: number;
   selectedNodeID: string | null;
   selectedRouteID: string | null;
+  highlightedPathRouteIDs: Set<string>;
+  highlightedPathNodeIDs: Set<string>;
   mapAction: MapAction;
   initialView: SharedViewState | null;
   loading: boolean;
@@ -63,6 +68,7 @@ interface Props {
   onViewChange: (view: MapViewState) => void;
   onSelectNode: (nodeID: string) => void;
   onSelectRoute: (routeID: string) => void;
+  onClearSelection: () => void;
 }
 
 type FeatureCollection = {
@@ -100,6 +106,7 @@ type ScreenNodeLabel = {
   y: number;
   selected: boolean;
   neighbour: boolean;
+  path: boolean;
   observer: boolean;
   recentActive: boolean;
   color: string;
@@ -134,13 +141,13 @@ const NODE_LAYER = 'node-symbols';
 const OBSERVER_LAYER = 'observer-symbols';
 const ROUTE_LAYER = 'route-lines';
 const ROUTE_HIT_LAYER = 'route-hit-lines';
-const NODE_ACTIVE_LABEL_VISIBLE_MS = 10_000;
-const NODE_LABEL_RECENT_VISIBLE_MS = 32_000;
+const NODE_ACTIVE_LABEL_VISIBLE_MS = 24_000;
+const NODE_LABEL_RECENT_VISIBLE_MS = 90_000;
 const MESSAGE_BUBBLE_LIFETIME_MS = 7_200;
 const MESSAGE_BUBBLE_MAX_WIDTH_PX = 440;
 const MESSAGE_BUBBLE_EDGE_PADDING_PX = 16;
-const ROUTE_PAYLOAD_GLOW_MS = 3_800;
-const ROUTE_PAYLOAD_GLOW_UPDATE_MS = 120;
+const ROUTE_PAYLOAD_GLOW_MS = 5_200;
+const ROUTE_PAYLOAD_GLOW_UPDATE_MS = 90;
 const ROUTE_VISUAL_CADENCE_MS = 150;
 const OBSERVER_VISUAL_CADENCE_MS = 105;
 const MAX_PENDING_ROUTE_VISUALS = 220;
@@ -206,6 +213,8 @@ const mapStyle: maplibregl.StyleSpecification = {
           'case',
           ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
           '#f8fafc',
+          ['==', ['get', 'path'], true],
+          '#facc15',
           ['==', ['get', 'connected'], true],
           '#67e8f9',
           '#67e8f9'
@@ -214,6 +223,8 @@ const mapStyle: maplibregl.StyleSpecification = {
           'case',
           ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
           8,
+          ['==', ['get', 'path'], true],
+          7,
           ['==', ['get', 'connected'], true],
           6,
           0
@@ -223,6 +234,8 @@ const mapStyle: maplibregl.StyleSpecification = {
           'case',
           ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
           0.22,
+          ['==', ['get', 'path'], true],
+          0.24,
           ['==', ['get', 'connected'], true],
           0.18,
           0
@@ -253,11 +266,13 @@ const mapStyle: maplibregl.StyleSpecification = {
       minzoom: DETAIL_MIN_ZOOM,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': ['get', 'color'],
+        'line-color': ['case', ['==', ['get', 'path'], true], '#facc15', ['get', 'color']],
         'line-width': [
           'case',
           ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
           ROUTE_ACTIVE_WIDTH,
+          ['==', ['get', 'path'], true],
+          ROUTE_PATH_WIDTH,
           ['==', ['get', 'connected'], true],
           ROUTE_CONNECTED_WIDTH,
           ROUTE_BASE_WIDTH
@@ -266,6 +281,8 @@ const mapStyle: maplibregl.StyleSpecification = {
           'case',
           ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
           ROUTE_ACTIVE_OPACITY,
+          ['==', ['get', 'path'], true],
+          ROUTE_PATH_OPACITY,
           ['==', ['get', 'connected'], true],
           ROUTE_CONNECTED_OPACITY,
           ['==', ['get', 'dimmed'], true],
@@ -353,7 +370,7 @@ const mapStyle: maplibregl.StyleSpecification = {
       layout: {
         'text-field': ['get', 'point_count_abbreviated'],
         'text-size': ['step', ['get', 'point_count'], 11, 25, 12, 75, 13],
-        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
         'text-allow-overlap': true,
         'text-ignore-placement': true
       },
@@ -369,13 +386,13 @@ const mapStyle: maplibregl.StyleSpecification = {
       type: 'circle',
       source: NODE_SOURCE,
       minzoom: DETAIL_MIN_ZOOM,
-      filter: ['all', ['!', ['has', 'point_count']], ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'neighbor'], true]]],
+      filter: ['all', ['!', ['has', 'point_count']], ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'path'], true]]],
       paint: {
-        'circle-radius': ['case', ['==', ['get', 'selected'], true], 18, 12],
+        'circle-radius': ['case', ['==', ['get', 'selected'], true], 18, ['==', ['get', 'path'], true], 15, 12],
         'circle-color': 'rgba(255, 255, 255, 0)',
-        'circle-stroke-color': ['case', ['==', ['get', 'selected'], true], '#f8fafc', '#67e8f9'],
-        'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.4, 1.6],
-        'circle-opacity': ['case', ['==', ['get', 'selected'], true], 0.95, 0.68]
+        'circle-stroke-color': ['case', ['==', ['get', 'selected'], true], '#f8fafc', ['==', ['get', 'path'], true], '#facc15', '#67e8f9'],
+        'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.4, ['==', ['get', 'path'], true], 1.9, 1.6],
+        'circle-opacity': ['case', ['==', ['get', 'selected'], true], 0.95, ['==', ['get', 'path'], true], 0.78, 0.68]
       }
     },
     {
@@ -390,24 +407,26 @@ const mapStyle: maplibregl.StyleSpecification = {
           ['linear'],
           ['zoom'],
           3,
-          ['case', ['==', ['get', 'selected'], true], 7, ['==', ['get', 'neighbor'], true], 5.4, 3],
+          ['case', ['==', ['get', 'selected'], true], 7, ['==', ['get', 'path'], true], 6.1, ['==', ['get', 'neighbor'], true], 5.4, 3],
           8,
-          ['case', ['==', ['get', 'selected'], true], 8, ['==', ['get', 'neighbor'], true], 6.4, 5.5],
+          ['case', ['==', ['get', 'selected'], true], 8, ['==', ['get', 'path'], true], 7.1, ['==', ['get', 'neighbor'], true], 6.4, 5.5],
           12,
-          ['case', ['==', ['get', 'selected'], true], 9, ['==', ['get', 'neighbor'], true], 7.2, 7]
+          ['case', ['==', ['get', 'selected'], true], 9, ['==', ['get', 'path'], true], 8.1, ['==', ['get', 'neighbor'], true], 7.2, 7]
         ],
         'circle-color': ['get', 'color'],
         'circle-stroke-color': [
           'case',
           ['==', ['get', 'selected'], true],
           '#ffffff',
+          ['==', ['get', 'path'], true],
+          '#facc15',
           ['==', ['get', 'neighbor'], true],
           '#67e8f9',
           'rgba(248, 250, 252, 0.82)'
         ],
-        'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
-        'circle-opacity': 0.92,
-        'circle-stroke-opacity': ['case', ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'neighbor'], true]], 1, 0.86]
+        'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'path'], true], 1.95, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
+        'circle-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.28, 0.92],
+        'circle-stroke-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.25, ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'neighbor'], true]], 1, 0.86]
       }
     }
   ]
@@ -423,13 +442,16 @@ export default function CanadaMap({
   clearToken,
   selectedNodeID,
   selectedRouteID,
+  highlightedPathRouteIDs,
+  highlightedPathNodeIDs,
   mapAction,
   initialView,
   loading,
   onPositionedNodesRendered,
   onViewChange,
   onSelectNode,
-  onSelectRoute
+  onSelectRoute,
+  onClearSelection
 }: Props) {
   const [hoveredRouteID, setHoveredRouteID] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<HoveredNodeToast | null>(null);
@@ -439,7 +461,10 @@ export default function CanadaMap({
   const [mapCenter, setMapCenter] = useState({ lat: 56.1304, lng: -106.3468 });
   const [mapInitError, setMapInitError] = useState('');
   const [nodeLabelClock, setNodeLabelClock] = useState(() => Date.now());
-  const nodeFocus = useMemo(() => nodeFocusFromRoutes(selectedNodeID, routes), [selectedNodeID, routes]);
+  const nodeFocus = useMemo(
+    () => nodeFocusFromRoutes(selectedNodeID, routes, highlightedPathRouteIDs, highlightedPathNodeIDs),
+    [selectedNodeID, routes, highlightedPathRouteIDs, highlightedPathNodeIDs]
+  );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -476,6 +501,7 @@ export default function CanadaMap({
   const viewChangeRef = useRef(onViewChange);
   const selectedNodeRef = useRef(onSelectNode);
   const selectedRouteRef = useRef(onSelectRoute);
+  const clearSelectionRef = useRef(onClearSelection);
 
   const showMessageBubble = (map: maplibregl.Map, bubble: MessageBubble | null) => {
     if (!bubble) return;
@@ -574,7 +600,8 @@ export default function CanadaMap({
     viewChangeRef.current = onViewChange;
     selectedNodeRef.current = onSelectNode;
     selectedRouteRef.current = onSelectRoute;
-  }, [onPositionedNodesRendered, onViewChange, onSelectNode, onSelectRoute]);
+    clearSelectionRef.current = onClearSelection;
+  }, [onPositionedNodesRendered, onViewChange, onSelectNode, onSelectRoute, onClearSelection]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -668,7 +695,7 @@ export default function CanadaMap({
       }
       try {
         addPublicLayers(map);
-        bindLayerEvents(map, nodesRef, selectedNodeRef, selectedRouteRef, setHoveredRouteID, setHoveredNode);
+        bindLayerEvents(map, nodesRef, selectedNodeRef, selectedRouteRef, clearSelectionRef, setHoveredRouteID, setHoveredNode);
         try {
           addBaseMapLayer(map);
         } catch {
@@ -884,7 +911,7 @@ export default function CanadaMap({
         {screenNodeLabels.map((label) => (
           <div
             key={label.id}
-            className={`node-screen-label ${label.selected ? 'selected' : ''} ${label.neighbour ? 'neighbor' : ''} ${label.observer ? 'observer' : ''} ${label.recentActive ? 'active' : ''}`}
+            className={`node-screen-label ${label.selected ? 'selected' : ''} ${label.neighbour ? 'neighbor' : ''} ${label.path ? 'path' : ''} ${label.observer ? 'observer' : ''} ${label.recentActive ? 'active' : ''}`}
             style={{
               '--node-label-color': label.color,
               '--node-label-opacity': label.opacity,
@@ -980,6 +1007,8 @@ function addPublicLayers(map: maplibregl.Map) {
         'case',
         ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
         '#f8fafc',
+        ['==', ['get', 'path'], true],
+        '#facc15',
         ['==', ['get', 'connected'], true],
         '#67e8f9',
         '#67e8f9'
@@ -988,6 +1017,8 @@ function addPublicLayers(map: maplibregl.Map) {
         'case',
         ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
         8,
+        ['==', ['get', 'path'], true],
+        7,
         ['==', ['get', 'connected'], true],
         6,
         0
@@ -997,6 +1028,8 @@ function addPublicLayers(map: maplibregl.Map) {
         'case',
         ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
         0.22,
+        ['==', ['get', 'path'], true],
+        0.24,
         ['==', ['get', 'connected'], true],
         0.18,
         0
@@ -1029,11 +1062,13 @@ function addPublicLayers(map: maplibregl.Map) {
     minzoom: DETAIL_MIN_ZOOM,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
-      'line-color': ['get', 'color'],
+      'line-color': ['case', ['==', ['get', 'path'], true], '#facc15', ['get', 'color']],
       'line-width': [
         'case',
         ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
         ROUTE_ACTIVE_WIDTH,
+        ['==', ['get', 'path'], true],
+        ROUTE_PATH_WIDTH,
         ['==', ['get', 'connected'], true],
         ROUTE_CONNECTED_WIDTH,
         ROUTE_BASE_WIDTH
@@ -1042,6 +1077,8 @@ function addPublicLayers(map: maplibregl.Map) {
         'case',
         ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
         ROUTE_ACTIVE_OPACITY,
+        ['==', ['get', 'path'], true],
+        ROUTE_PATH_OPACITY,
         ['==', ['get', 'connected'], true],
         ROUTE_CONNECTED_OPACITY,
         ['==', ['get', 'dimmed'], true],
@@ -1134,7 +1171,7 @@ function addPublicLayers(map: maplibregl.Map) {
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
       'text-size': ['step', ['get', 'point_count'], 11, 25, 12, 75, 13],
-      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
       'text-allow-overlap': true,
       'text-ignore-placement': true
     },
@@ -1151,13 +1188,13 @@ function addPublicLayers(map: maplibregl.Map) {
     type: 'circle',
     source: NODE_SOURCE,
     minzoom: DETAIL_MIN_ZOOM,
-    filter: ['all', ['!', ['has', 'point_count']], ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'neighbor'], true]]],
+    filter: ['all', ['!', ['has', 'point_count']], ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'path'], true]]],
     paint: {
-      'circle-radius': ['case', ['==', ['get', 'selected'], true], 18, 12],
+      'circle-radius': ['case', ['==', ['get', 'selected'], true], 18, ['==', ['get', 'path'], true], 15, 12],
       'circle-color': 'rgba(255, 255, 255, 0)',
-      'circle-stroke-color': ['case', ['==', ['get', 'selected'], true], '#f8fafc', '#67e8f9'],
-      'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.4, 1.6],
-      'circle-opacity': ['case', ['==', ['get', 'selected'], true], 0.95, 0.68]
+      'circle-stroke-color': ['case', ['==', ['get', 'selected'], true], '#f8fafc', ['==', ['get', 'path'], true], '#facc15', '#67e8f9'],
+      'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.4, ['==', ['get', 'path'], true], 1.9, 1.6],
+      'circle-opacity': ['case', ['==', ['get', 'selected'], true], 0.95, ['==', ['get', 'path'], true], 0.78, 0.68]
     }
   });
 
@@ -1173,26 +1210,28 @@ function addPublicLayers(map: maplibregl.Map) {
         ['linear'],
         ['zoom'],
         3,
-        ['case', ['==', ['get', 'selected'], true], 7, ['==', ['get', 'observer'], true], 5.8, ['==', ['get', 'neighbor'], true], 5.4, 3],
+        ['case', ['==', ['get', 'selected'], true], 7, ['==', ['get', 'path'], true], 6.1, ['==', ['get', 'observer'], true], 5.8, ['==', ['get', 'neighbor'], true], 5.4, 3],
         8,
-        ['case', ['==', ['get', 'selected'], true], 8, ['==', ['get', 'observer'], true], 7.4, ['==', ['get', 'neighbor'], true], 6.4, 5.5],
+        ['case', ['==', ['get', 'selected'], true], 8, ['==', ['get', 'path'], true], 7.1, ['==', ['get', 'observer'], true], 7.4, ['==', ['get', 'neighbor'], true], 6.4, 5.5],
         12,
-        ['case', ['==', ['get', 'selected'], true], 9, ['==', ['get', 'observer'], true], 8.2, ['==', ['get', 'neighbor'], true], 7.2, 7]
+        ['case', ['==', ['get', 'selected'], true], 9, ['==', ['get', 'path'], true], 8.1, ['==', ['get', 'observer'], true], 8.2, ['==', ['get', 'neighbor'], true], 7.2, 7]
       ],
       'circle-color': ['case', ['==', ['get', 'observer'], true], '#f59e0b', ['get', 'color']],
       'circle-stroke-color': [
         'case',
         ['==', ['get', 'selected'], true],
         '#ffffff',
+        ['==', ['get', 'path'], true],
+        '#facc15',
         ['==', ['get', 'observer'], true],
         '#fef3c7',
         ['==', ['get', 'neighbor'], true],
         '#67e8f9',
         'rgba(248, 250, 252, 0.82)'
       ],
-      'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'observer'], true], 2, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
-      'circle-opacity': ['case', ['==', ['get', 'observer'], true], 0.98, 0.9],
-      'circle-stroke-opacity': ['case', ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'observer'], true]], 1, 0.86]
+      'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'path'], true], 1.95, ['==', ['get', 'observer'], true], 2, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
+      'circle-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.28, ['==', ['get', 'observer'], true], 0.98, 0.9],
+      'circle-stroke-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.25, ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'observer'], true]], 1, 0.86]
     }
   });
 
@@ -1209,7 +1248,7 @@ function addPublicLayers(map: maplibregl.Map) {
       'icon-ignore-placement': true
     },
     paint: {
-      'icon-opacity': ['case', ['==', ['get', 'selected'], true], 1, 0.94]
+      'icon-opacity': ['case', ['==', ['get', 'selected'], true], 1, ['==', ['get', 'dimmed'], true], 0.34, 0.94]
     }
   });
 
@@ -1241,7 +1280,7 @@ function projectNodeLabels(
     return [];
   }
   const baseMaxLabels = zoom >= 10.2 ? 48 : zoom >= 9.2 ? 34 : zoom >= 8.4 ? 18 : 8;
-  const maxLabels = Math.min(72, baseMaxLabels + focus.neighbourNodeIDs.size + (focus.selectedNodeID ? 1 : 0));
+  const maxLabels = Math.min(90, baseMaxLabels + focus.neighbourNodeIDs.size + focus.pathNodeIDs.size + (focus.selectedNodeID ? 1 : 0));
   const showInactiveLabels = zoom >= 8.8;
   const margin = 80;
 
@@ -1254,25 +1293,29 @@ function projectNodeLabels(
       const recentActive = ageMs <= NODE_LABEL_RECENT_VISIBLE_MS;
       const selected = node.id === focus.selectedNodeID;
       const neighbour = focus.neighbourNodeIDs.has(node.id);
+      const path = focus.pathNodeIDs.has(node.id);
       const observer = node.isObserver === true;
       const distanceKm = focus.neighbourDistanceKmByNodeID.get(node.id);
       const recentActivity = recentActivityByNodeID.get(node.id);
       const frequencyHeat = nodeActivityHeat(recentActivity?.hits.length ?? 0);
-      const rawActivityProgress = recentActive ? Math.max(0, 1 - ageMs / NODE_LABEL_RECENT_VISIBLE_MS) : 0;
-      const activityProgress = rawActivityProgress * rawActivityProgress * (3 - 2 * rawActivityProgress);
-      const pulseGlow = activityProgress * 0.28;
+      const activityProgress = recentActive ? nodeLabelActivityProgress(ageMs, NODE_LABEL_RECENT_VISIBLE_MS) : 0;
+      const pulseGlow = activityProgress * 0.18;
       const glow = selected
         ? Math.max(0.58, pulseGlow)
+        : path
+          ? Math.max(0.46, pulseGlow)
         : neighbour
           ? Math.max(0.3, pulseGlow)
           : observer
             ? Math.max(0.52, pulseGlow)
             : pulseGlow;
       const ghostOpacity = showInactiveLabels ? (zoom >= 10 ? 0.12 : 0.055) : 0;
-      const activeOpacity = recentActive ? 0.22 + activityProgress * 0.24 : ghostOpacity;
+      const activeOpacity = recentActive ? ghostOpacity + 0.2 + activityProgress * 0.14 : ghostOpacity;
       const observerOpacity = observer ? Math.max(zoom >= 9 ? 0.72 : 0.58, activeOpacity) : activeOpacity;
       const opacity = selected
         ? 1
+        : path
+          ? 0.9
         : neighbour
           ? 0.88
           : observer
@@ -1281,15 +1324,17 @@ function projectNodeLabels(
       const heat = Math.max(frequencyHeat * 0.35, pulseGlow * 0.5);
       const color = selected
         ? '#ffffff'
+        : path
+          ? '#facc15'
         : neighbour
           ? '#67e8f9'
           : observer
             ? '#fbbf24'
-            : activityProgress > 0.18
+            : activityProgress > 0.28
               ? nodeLabelHeatColor(heat)
               : '#b8c7d9';
       const age = neighbour && distanceKm !== undefined
-        ? `${nodeLastHeardAgeLabel(activityAt ?? node.lastSeen, now)} · ${formatDistanceKm(distanceKm)}`
+        ? `${nodeLastHeardAgeLabel(activityAt ?? node.lastSeen, now)} / ${formatDistanceKm(distanceKm)}`
         : nodeLastHeardAgeLabel(activityAt ?? node.lastSeen, now);
       return {
         id: node.id,
@@ -1299,6 +1344,7 @@ function projectNodeLabels(
         y: point.y + (zoom >= 9 ? 13 : 11),
         selected,
         neighbour,
+        path,
         observer,
         recentActive,
         color,
@@ -1306,6 +1352,7 @@ function projectNodeLabels(
         glow,
         rank: (selected ? 1_000_000 : 0)
           + (neighbour ? 850_000 : 0)
+          + (path ? 760_000 : 0)
           + (observer ? 520_000 : 0)
           + (recentActive ? 240_000 : 0)
           + Math.round(frequencyHeat * 2_500)
@@ -1313,7 +1360,7 @@ function projectNodeLabels(
       };
     });
   const inView = projected.filter((label) => label.x >= -margin && label.x <= width + margin && label.y >= -margin && label.y <= height + margin);
-  const visible = inView.filter((label) => label.opacity > 0 && (label.selected || label.neighbour || label.observer || label.recentActive || showInactiveLabels));
+  const visible = inView.filter((label) => label.opacity > 0 && (label.selected || label.neighbour || label.path || label.observer || label.recentActive || showInactiveLabels));
   return visible
     .sort((a, b) => b.rank - a.rank)
     .slice(0, maxLabels)
@@ -1325,6 +1372,7 @@ function projectNodeLabels(
       y: label.y,
       selected: label.selected,
       neighbour: label.neighbour,
+      path: label.path,
       observer: label.observer,
       recentActive: label.recentActive,
       color: label.color,
@@ -1666,7 +1714,7 @@ function updateRoutePayloadGlowFeatureStates(map: maplibregl.Map, glows: Map<str
   let activeGlowCount = 0;
   for (const [routeID, glow] of glows.entries()) {
     const progress = Math.max(0, Math.min(1, (now - glow.startedAt) / ROUTE_PAYLOAD_GLOW_MS));
-    const intensity = Math.pow(1 - progress, 1.25);
+    const intensity = Math.pow(1 - progress, 0.72);
     if (now >= glow.expiresAt || intensity <= 0.01) {
       safeSetRouteFeatureState(map, routeID, { payloadGlow: 0, payloadGlowColor: glow.color });
       glows.delete(routeID);
@@ -1861,27 +1909,21 @@ function bindLayerEvents(
   nodesRef: MutableRefObject<PublicNode[]>,
   selectedNodeRef: MutableRefObject<(nodeID: string) => void>,
   selectedRouteRef: MutableRefObject<(routeID: string) => void>,
+  clearSelectionRef: MutableRefObject<() => void>,
   setHoveredRouteID: Dispatch<SetStateAction<string | null>>,
   setHoveredNode: Dispatch<SetStateAction<HoveredNodeToast | null>>
 ) {
-  const expandCluster = async (event: maplibregl.MapMouseEvent) => {
-    const features = map.queryRenderedFeatures(event.point, { layers: [CLUSTER_COUNT_LAYER, CLUSTER_LAYER] });
-    const feature = features[0] as any;
-    const clusterID = feature?.properties?.cluster_id;
-    const coordinates = feature?.geometry?.coordinates;
-    if (typeof clusterID !== 'number' || !coordinates) return;
+  const expandClusterFeature = async (feature: maplibregl.MapGeoJSONFeature | undefined) => {
+    const typedFeature = feature as any;
+    const clusterID = typedFeature?.properties?.cluster_id;
+    const coordinates = typedFeature?.geometry?.coordinates;
+    if (typeof clusterID !== 'number' || !coordinates) return false;
     const source = map.getSource(NODE_SOURCE) as any;
     const zoom = await source.getClusterExpansionZoom(clusterID);
     map.easeTo({ center: coordinates, zoom, duration: 600 });
+    return true;
   };
-  map.on('click', CLUSTER_LAYER, expandCluster);
-  map.on('click', CLUSTER_COUNT_LAYER, expandCluster);
-  map.on('click', NODE_LAYER, (event) => {
-    const feature = event.features?.[0];
-    const id = feature?.properties?.id;
-    if (typeof id === 'string') selectedNodeRef.current(id);
-  });
-  map.on('mousemove', NODE_LAYER, (event) => {
+  const handleNodePointerMove = (event: maplibregl.MapLayerMouseEvent) => {
     const feature = event.features?.[0];
     const id = feature?.properties?.id;
     if (typeof id !== 'string') return;
@@ -1897,14 +1939,46 @@ function bindLayerEvents(
       if (current?.node.id === node.id && Math.abs(current.x - x) < 3 && Math.abs(current.y - y) < 3) return current;
       return { node, x, y };
     });
+  };
+  map.on('click', async (event) => {
+    const nodeLayers = [OBSERVER_LAYER, NODE_LAYER].filter((layerID) => map.getLayer(layerID));
+    const nodeFeature = nodeLayers.length > 0
+      ? map.queryRenderedFeatures(event.point, { layers: nodeLayers }).find((feature) => typeof feature.properties?.id === 'string')
+      : undefined;
+    const nodeID = nodeFeature?.properties?.id;
+    if (typeof nodeID === 'string') {
+      selectedNodeRef.current(nodeID);
+      return;
+    }
+
+    const clusterLayers = [CLUSTER_COUNT_LAYER, CLUSTER_LAYER].filter((layerID) => map.getLayer(layerID));
+    const clusterFeature = clusterLayers.length > 0
+      ? map.queryRenderedFeatures(event.point, { layers: clusterLayers })[0]
+      : undefined;
+    if (await expandClusterFeature(clusterFeature)) return;
+
+    const routeLayers = [ROUTE_HIT_LAYER].filter((layerID) => map.getLayer(layerID));
+    const routeFeature = routeLayers.length > 0
+      ? map.queryRenderedFeatures(event.point, { layers: routeLayers }).find((feature) => typeof feature.properties?.id === 'string')
+      : undefined;
+    const routeID = routeFeature?.properties?.id;
+    if (typeof routeID === 'string') {
+      selectedRouteRef.current(routeID);
+      return;
+    }
+
+    clearSelectionRef.current();
   });
+  map.on('mousemove', NODE_LAYER, handleNodePointerMove);
+  map.on('mousemove', OBSERVER_LAYER, handleNodePointerMove);
   map.on('mouseleave', NODE_LAYER, () => setHoveredNode(null));
-  map.on('click', ROUTE_HIT_LAYER, (event) => {
-    const feature = event.features?.[0];
-    const id = feature?.properties?.id;
-    if (typeof id === 'string') selectedRouteRef.current(id);
-  });
+  map.on('mouseleave', OBSERVER_LAYER, () => setHoveredNode(null));
   map.on('mousemove', ROUTE_HIT_LAYER, (event) => {
+    const nodeLayers = [OBSERVER_LAYER, NODE_LAYER].filter((layerID) => map.getLayer(layerID));
+    if (nodeLayers.length > 0 && map.queryRenderedFeatures(event.point, { layers: nodeLayers }).length > 0) {
+      setHoveredRouteID(null);
+      return;
+    }
     const feature = event.features?.[0];
     const id = feature?.properties?.id;
     if (typeof id === 'string') {
@@ -1914,7 +1988,7 @@ function bindLayerEvents(
   map.on('mouseleave', ROUTE_HIT_LAYER, () => {
     setHoveredRouteID(null);
   });
-  for (const layer of [CLUSTER_LAYER, CLUSTER_COUNT_LAYER, NODE_LAYER, ROUTE_HIT_LAYER]) {
+  for (const layer of [CLUSTER_LAYER, CLUSTER_COUNT_LAYER, NODE_LAYER, OBSERVER_LAYER, ROUTE_HIT_LAYER]) {
     map.on('mouseenter', layer, () => {
       map.getCanvas().style.cursor = 'pointer';
     });
@@ -1937,8 +2011,12 @@ function NodeHoverToast({ hovered, now }: { hovered: HoveredNodeToast; now: numb
           <dd>{nodeLastHeardAgeLabel(node.lastSeen, now).replace(/^last /, '')}</dd>
         </div>
         <div>
-          <dt>Activity</dt>
+          <dt>Packets</dt>
           <dd>{node.activityCount.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>Observer</dt>
+          <dd>{node.isObserver ? 'Yes' : 'No'}</dd>
         </div>
       </dl>
     </div>
@@ -1978,6 +2056,8 @@ function nodeFeatureProperties(
 ) {
   const selected = node.id === focus.selectedNodeID;
   const neighbor = focus.neighbourNodeIDs.has(node.id);
+  const path = focus.pathNodeIDs.has(node.id);
+  const focusActive = Boolean(focus.selectedNodeID) || focus.pathNodeIDs.size > 0;
   return {
     id: node.id,
     label: node.label,
@@ -1986,7 +2066,9 @@ function nodeFeatureProperties(
     color: nodeRoleColor(node.role),
     selected,
     neighbor,
-    focused: selected || neighbor,
+    path,
+    focused: selected || neighbor || path,
+    dimmed: focusActive && !selected && !neighbor && !path,
     neighborDistanceKm: focus.neighbourDistanceKmByNodeID.get(node.id) ?? null,
     recentActive: recentNodeActivity(node.id, labelClock, meshActivityAtByNodeID),
     observer: node.isObserver === true
@@ -2013,6 +2095,7 @@ function routesToGeoJSON(
         const selected = route.id === selectedRouteID;
         const hovered = route.id === hoveredRouteID;
         const connected = focus.connectedRouteIDs.has(route.id);
+        const path = focus.pathRouteIDs.has(route.id);
         return {
           type: 'Feature',
           id: route.id,
@@ -2021,8 +2104,9 @@ function routesToGeoJSON(
             color: routeColors[Math.max(0, Math.min(4, route.frequencyBucket))],
             selected,
             hovered,
+            path,
             connected,
-            dimmed: hasFocusedRoute && !selected && !hovered && !connected
+            dimmed: hasFocusedRoute && !selected && !hovered && !path && !connected
           },
           geometry: {
             type: 'LineString',

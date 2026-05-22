@@ -5,14 +5,23 @@ export interface NodeFocus {
   neighbourNodeIDs: Set<string>;
   connectedRouteIDs: Set<string>;
   neighbourDistanceKmByNodeID: Map<string, number>;
+  pathNodeIDs: Set<string>;
+  pathRouteIDs: Set<string>;
 }
 
-export function nodeFocusFromRoutes(selectedNodeID: string | null, routes: PublicRoute[]): NodeFocus {
+export function nodeFocusFromRoutes(
+  selectedNodeID: string | null,
+  routes: PublicRoute[],
+  highlightedPathRouteIDs: Set<string> = new Set(),
+  highlightedPathNodeIDs: Set<string> = new Set()
+): NodeFocus {
   const neighbourNodeIDs = new Set<string>();
   const connectedRouteIDs = new Set<string>();
   const neighbourDistanceKmByNodeID = new Map<string, number>();
+  const pathNodeIDs = new Set(highlightedPathNodeIDs);
+  const pathRouteIDs = new Set(highlightedPathRouteIDs);
   if (!selectedNodeID) {
-    return { selectedNodeID: null, neighbourNodeIDs, connectedRouteIDs, neighbourDistanceKmByNodeID };
+    return { selectedNodeID: null, neighbourNodeIDs, connectedRouteIDs, neighbourDistanceKmByNodeID, pathNodeIDs, pathRouteIDs };
   }
 
   for (const route of routes) {
@@ -30,7 +39,7 @@ export function nodeFocusFromRoutes(selectedNodeID: string | null, routes: Publi
     }
   }
 
-  return { selectedNodeID, neighbourNodeIDs, connectedRouteIDs, neighbourDistanceKmByNodeID };
+  return { selectedNodeID, neighbourNodeIDs, connectedRouteIDs, neighbourDistanceKmByNodeID, pathNodeIDs, pathRouteIDs };
 }
 
 export function emptyNodeFocus(): NodeFocus {

@@ -35,7 +35,7 @@ describe('packet animation timing', () => {
     expect(packetTravelDuration(1)).toBe(PACKET_SINGLE_HOP_DURATION_MS);
     expect(packetTravelDuration(2)).toBeGreaterThan(PACKET_SINGLE_HOP_DURATION_MS);
     expect(packetTravelDuration(99)).toBe(PACKET_MAX_TRAVEL_DURATION_MS);
-    expect(PACKET_AFTERGLOW_MS).toBe(900);
+    expect(PACKET_AFTERGLOW_MS).toBe(1200);
   });
 
   it('advances multi-hop packets sequentially segment by segment', () => {

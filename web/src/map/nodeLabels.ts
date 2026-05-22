@@ -1,10 +1,10 @@
 import type { PublicNode } from '../types';
 
-export const NODE_LABEL_UPDATE_MS = 5_000;
+export const NODE_LABEL_UPDATE_MS = 2_000;
 export const NODE_LABEL_MAX_CHARS = 18;
 export const NODE_ACTIVITY_WINDOW_MS = 60_000;
-export const NODE_ACTIVITY_GLOW_MS = 2_700;
-export const NODE_ACTIVITY_UPDATE_MS = 500;
+export const NODE_ACTIVITY_GLOW_MS = 6_500;
+export const NODE_ACTIVITY_UPDATE_MS = 250;
 export const NODE_ACTIVITY_HOT_COUNT = 30;
 
 export function nodeMapLabel(node: PublicNode, now: number, meshActivityAt?: number): string {
@@ -39,5 +39,12 @@ export function nodeActivityHeat(hitCount: number): number {
 
 export function nodeActivityGlow(ageMs: number): number {
   if (ageMs < 0) return 1;
-  return Math.max(0, 1 - ageMs / NODE_ACTIVITY_GLOW_MS);
+  const progress = Math.max(0, Math.min(1, ageMs / NODE_ACTIVITY_GLOW_MS));
+  return Math.pow(1 - progress, 0.72);
+}
+
+export function nodeLabelActivityProgress(ageMs: number, visibleWindowMs: number): number {
+  if (!Number.isFinite(ageMs) || ageMs < 0 || visibleWindowMs <= 0) return 0;
+  const remaining = Math.max(0, Math.min(1, 1 - ageMs / visibleWindowMs));
+  return Math.pow(remaining, 0.68);
 }

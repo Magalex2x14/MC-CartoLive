@@ -7,6 +7,8 @@ import {
   ROUTE_CONNECTED_OPACITY,
   ROUTE_CONNECTED_WIDTH,
   ROUTE_DIMMED_OPACITY,
+  ROUTE_PATH_OPACITY,
+  ROUTE_PATH_WIDTH,
   routeLineOpacity,
   routeLineWidth
 } from './routeStyles';
@@ -36,5 +38,12 @@ describe('route line styles', () => {
     expect(routeLineWidth({ connected: true })).toBe(ROUTE_CONNECTED_WIDTH);
     expect(routeLineOpacity({ connected: true, selected: true })).toBe(ROUTE_ACTIVE_OPACITY);
     expect(routeLineWidth({ connected: true, hovered: true })).toBe(ROUTE_ACTIVE_WIDTH);
+  });
+
+  it('shows phonebook paths above direct connected routes but below explicit route selection', () => {
+    expect(routeLineOpacity({ path: true })).toBe(ROUTE_PATH_OPACITY);
+    expect(routeLineWidth({ path: true })).toBe(ROUTE_PATH_WIDTH);
+    expect(routeLineOpacity({ path: true, connected: true })).toBe(ROUTE_PATH_OPACITY);
+    expect(routeLineWidth({ path: true, selected: true })).toBe(ROUTE_ACTIVE_WIDTH);
   });
 });

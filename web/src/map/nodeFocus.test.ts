@@ -34,6 +34,8 @@ describe('node focus', () => {
     expect([...focus.neighbourNodeIDs].sort()).toEqual(['b', 'c']);
     expect(focus.neighbourDistanceKmByNodeID.get('b')).toBe(9.2);
     expect(focus.neighbourDistanceKmByNodeID.get('c')).toBe(7.4);
+    expect(focus.pathRouteIDs.size).toBe(0);
+    expect(focus.pathNodeIDs.size).toBe(0);
   });
 
   it('returns empty focus data without a selected node', () => {
@@ -43,5 +45,12 @@ describe('node focus', () => {
     expect(focus.connectedRouteIDs.size).toBe(0);
     expect(focus.neighbourNodeIDs.size).toBe(0);
     expect(focus.neighbourDistanceKmByNodeID.size).toBe(0);
+  });
+
+  it('preserves highlighted path route and node IDs', () => {
+    const focus = nodeFocusFromRoutes('a', [route('a-b', 'a', 'b', 12)], new Set(['a-b']), new Set(['a', 'b']));
+
+    expect([...focus.pathRouteIDs]).toEqual(['a-b']);
+    expect([...focus.pathNodeIDs]).toEqual(['a', 'b']);
   });
 });

@@ -1,49 +1,167 @@
+import { X } from 'lucide-react';
+import type { PhonebookGroup, ReachableNode } from '../connectivity';
 import type { PublicNode, PublicRoute } from '../types';
 
 interface Props {
   node: PublicNode | null;
   route: PublicRoute | null;
   connectedRoutes: PublicRoute[];
+  phonebookGroups: PhonebookGroup[];
+  selectedPathTargetID: string | null;
   onRouteSelect: (routeID: string) => void;
+  onPhonebookSelect: (nodeID: string) => void;
+  onClose: () => void;
 }
 
-export default function SelectionDrawer({ node, route, connectedRoutes, onRouteSelect }: Props) {
+export default function SelectionDrawer({
+  node,
+  route,
+  connectedRoutes,
+  phonebookGroups,
+  selectedPathTargetID,
+  onRouteSelect,
+  onPhonebookSelect,
+  onClose
+}: Props) {
   if (!node && !route) return null;
+  const reachableCount = phonebookGroups.reduce((total, group) => total + group.nodes.length, 0);
+
   return (
-    <aside className="selection-drawer">
+    <div className={`selection-panels ${node ? 'with-phonebook' : 'route-only'}`}>
+      <aside className="selection-panel details-panel" aria-label={node ? 'Node details' : 'Route details'}>
+        <PanelCloseButton onClose={onClose} />
+        {node && (
+          <>
+            <span className="eyebrow">{formatNodeRole(node.role)}{node.isObserver ? ' observer' : ''}</span>
+            <h2>{node.label}</h2>
+            <dl>
+              <Detail label="Role" value={formatNodeRole(node.role)} />
+              <Detail label="Observer" value={node.isObserver ? 'Yes' : 'No'} />
+              <Detail label="Last seen" value={formatRelative(node.lastSeen)} />
+              <Detail label="First seen" value={formatRelative(node.firstSeen)} />
+              <Detail label="Activity" value={`${node.activityCount.toLocaleString()} packets`} />
+              <Detail label="Direct routes" value={connectedRoutes.length.toLocaleString()} />
+              <Detail label="Reachable" value={`${reachableCount.toLocaleString()} nodes`} />
+              <Detail label="Regions" value={formatRegions(node.iatasHeardIn)} />
+              <Detail label="Coordinates" value={`${node.latitude.toFixed(4)}, ${node.longitude.toFixed(4)}`} />
+            </dl>
+            {connectedRoutes.length > 0 && (
+              <div className="drawer-route-list" aria-label="Strongest served routes">
+                {connectedRoutes.slice(0, 10).map((item) => (
+                  <button type="button" key={item.id} onClick={() => onRouteSelect(item.id)}>
+                    <span className={`route-swatch bucket-${item.frequencyBucket}`} />
+                    <span>{routePeerLabel(item, node.id)}</span>
+                    <em>{item.packetCount.toLocaleString()}</em>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {!node && route && (
+          <>
+            <span className="eyebrow">route</span>
+            <h2>{route.from.label}{' -> '}{route.to.label}</h2>
+            <dl>
+              <Detail label="Packets" value={route.packetCount.toLocaleString()} />
+              <Detail label="Distance" value={`${route.distanceKm.toFixed(1)} km`} />
+              <Detail label="Last heard" value={formatRelative(route.lastHeard)} />
+              <Detail label="Payloads" value={route.payloadTypeNames.join(', ') || 'Unknown'} />
+              <Detail label="From" value={route.from.label} />
+              <Detail label="To" value={route.to.label} />
+            </dl>
+          </>
+        )}
+      </aside>
+
       {node && (
-        <>
-          <span className="eyebrow">{node.role.replaceAll('_', ' ')}</span>
-          <h2>{node.label}</h2>
-          <dl>
-            <div><dt>Last seen</dt><dd>{formatRelative(node.lastSeen)}</dd></div>
-            <div><dt>Activity</dt><dd>{node.activityCount.toLocaleString()} packets</dd></div>
-            <div><dt>Regions</dt><dd>{node.iatasHeardIn.slice(0, 5).join(', ') || 'Unknown'}</dd></div>
-          </dl>
-          <div className="drawer-route-list">
-            {connectedRoutes.slice(0, 6).map((item) => (
-              <button type="button" key={item.id} onClick={() => onRouteSelect(item.id)}>
-                <span className={`route-swatch bucket-${item.frequencyBucket}`} />
-                <span>{item.from.nodeId === node.id ? item.to.label : item.from.label}</span>
-                <em>{item.packetCount}</em>
-              </button>
-            ))}
-          </div>
-        </>
+        <aside className="selection-panel phonebook-panel" aria-label="Reachable node phonebook">
+          <PanelCloseButton onClose={onClose} />
+          <span className="eyebrow">phonebook</span>
+          <h2>Reachable nodes</h2>
+          <p className="phonebook-summary">{reachableCount.toLocaleString()} nodes through valid public routes</p>
+          {phonebookGroups.length === 0 ? (
+            <p className="phonebook-empty">No reachable nodes in the current public route graph.</p>
+          ) : (
+            <div className="phonebook-groups">
+              {phonebookGroups.map((group) => (
+                <section className="phonebook-group" key={group.hopCount}>
+                  <h3>{group.hopCount} {group.hopCount === 1 ? 'hop' : 'hops'}</h3>
+                  <div className="phonebook-list">
+                    {group.nodes.map((item) => (
+                      <PhonebookRow
+                        key={item.node.id}
+                        item={item}
+                        selected={item.node.id === selectedPathTargetID}
+                        onSelect={onPhonebookSelect}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </aside>
       )}
-      {!node && route && (
-        <>
-          <span className="eyebrow">route</span>
-          <h2>{route.from.label}{' -> '}{route.to.label}</h2>
-          <dl>
-            <div><dt>Packets</dt><dd>{route.packetCount.toLocaleString()}</dd></div>
-            <div><dt>Distance</dt><dd>{route.distanceKm.toFixed(1)} km</dd></div>
-            <div><dt>Last heard</dt><dd>{formatRelative(route.lastHeard)}</dd></div>
-          </dl>
-        </>
-      )}
-    </aside>
+    </div>
   );
+}
+
+function PanelCloseButton({ onClose }: { onClose: () => void }) {
+  return (
+    <button className="panel-close-button" type="button" aria-label="Close selection panels" onClick={onClose}>
+      <X size={15} />
+    </button>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+function PhonebookRow({ item, selected, onSelect }: { item: ReachableNode; selected: boolean; onSelect: (nodeID: string) => void }) {
+  return (
+    <button type="button" className={`phonebook-row ${selected ? 'selected' : ''}`} onClick={() => onSelect(item.node.id)}>
+      <span className="phonebook-row-main">
+        <strong>{item.node.label}</strong>
+        <em>{formatNodeRole(item.node.role)} / {formatRegions(item.node.iatasHeardIn, 2)}</em>
+      </span>
+      <span className="phonebook-row-stats">
+        <strong>{item.hopCount} {item.hopCount === 1 ? 'hop' : 'hops'}</strong>
+        <em>{item.strongestRoutePacketCount.toLocaleString()} max pkt / {formatRelative(item.lastHeard)}</em>
+      </span>
+      <span className="phonebook-row-path">{formatPathSummary(item)}</span>
+    </button>
+  );
+}
+
+function routePeerLabel(route: PublicRoute, nodeID: string): string {
+  return route.from.nodeId === nodeID ? route.to.label : route.from.label;
+}
+
+function formatPathSummary(item: ReachableNode): string {
+  const labels = item.endpointLabels.slice(0, 4);
+  const extra = item.endpointLabels.length > labels.length ? ` +${item.endpointLabels.length - labels.length}` : '';
+  return `${labels.join(' -> ')}${extra} / ${item.totalDistanceKm.toFixed(1)} km`;
+}
+
+function formatNodeRole(role: string): string {
+  if (role === 'room_server') return 'Room';
+  if (role === 'repeater') return 'Repeater';
+  if (role === 'companion') return 'Companion';
+  if (role === 'sensor') return 'Sensor';
+  return 'Unknown';
+}
+
+function formatRegions(regions: string[], limit = 5): string {
+  if (regions.length === 0) return 'Unknown';
+  const shown = regions.slice(0, limit).join(', ');
+  return regions.length > limit ? `${shown} +${regions.length - limit}` : shown;
 }
 
 function formatRelative(ms: number): string {

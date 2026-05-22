@@ -80,6 +80,17 @@ The mobile layout keeps the map, route motion, packet comets, and Live Follow
 control as the primary experience. Secondary panels, status toasts, the legend,
 and busy-path lists are hidden by default at small viewport widths.
 
+## Node Connectivity UI
+
+At detail zoom, click a repeater, observer, room, companion, or sensor to test
+the v1.2 connectivity focus. Directly served routes and direct neighbors should
+brighten while unrelated routes and nodes dim. The phonebook panel should group
+reachable nodes by hop count, highest first, and clicking a row should highlight
+the shortest valid public route path without changing the selected source node.
+
+Escape, the panel close button, and an empty map click should clear node, route,
+and phonebook path focus.
+
 ## Release Checks
 
 Run before publishing or opening a pull request:

@@ -10,14 +10,13 @@ export const ROUTE_CONNECTED_WIDTH = 2.8;
 
 export interface RouteRenderState {
   selected?: boolean;
-  hovered?: boolean;
   path?: boolean;
   connected?: boolean;
   dimmed?: boolean;
 }
 
 export function routeLineOpacity(state: RouteRenderState): number {
-  if (state.selected || state.hovered) return ROUTE_ACTIVE_OPACITY;
+  if (state.selected) return ROUTE_ACTIVE_OPACITY;
   if (state.path) return ROUTE_PATH_OPACITY;
   if (state.connected) return ROUTE_CONNECTED_OPACITY;
   if (state.dimmed) return ROUTE_DIMMED_OPACITY;
@@ -25,7 +24,7 @@ export function routeLineOpacity(state: RouteRenderState): number {
 }
 
 export function routeLineWidth(state: RouteRenderState): number {
-  if (state.selected || state.hovered) return ROUTE_ACTIVE_WIDTH;
+  if (state.selected) return ROUTE_ACTIVE_WIDTH;
   if (state.path) return ROUTE_PATH_WIDTH;
   if (state.connected) return ROUTE_CONNECTED_WIDTH;
   return ROUTE_BASE_WIDTH;

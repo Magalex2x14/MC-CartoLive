@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1
+
+- Changed phonebook defaults from max-hop-first to best useful routes first.
+- Added phonebook search across node names, public node IDs, regions/IATAs, path labels, roles, and 3-byte route prefixes.
+- Added phonebook sort controls for best route, shortest, busiest, nearest, and most recent.
+- Added a distance filter so mobile users can narrow route-copy candidates before choosing a verified path.
+- Removed direct map route-line click and hover selection so dense route areas do not steal node clicks.
+
 ## 1.3.0
 
 - Added MeshCore 3-byte route copy support from selected phonebook paths.

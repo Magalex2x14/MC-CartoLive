@@ -68,7 +68,6 @@ interface Props {
   onPositionedNodesRendered: () => void;
   onViewChange: (view: MapViewState) => void;
   onSelectNode: (nodeID: string) => void;
-  onSelectRoute: (routeID: string) => void;
   onPlotNodePick: (nodeID: string) => void;
   onPlotMapPoint: (point: { lat: number; lng: number }) => void;
   onClearSelection: () => void;
@@ -214,7 +213,7 @@ const mapStyle: maplibregl.StyleSpecification = {
       paint: {
         'line-color': [
           'case',
-          ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+          ['==', ['get', 'selected'], true],
           '#f8fafc',
           ['==', ['get', 'path'], true],
           '#facc15',
@@ -224,7 +223,7 @@ const mapStyle: maplibregl.StyleSpecification = {
         ],
         'line-width': [
           'case',
-          ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+          ['==', ['get', 'selected'], true],
           8,
           ['==', ['get', 'path'], true],
           7,
@@ -235,7 +234,7 @@ const mapStyle: maplibregl.StyleSpecification = {
         'line-blur': 4,
         'line-opacity': [
           'case',
-          ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+          ['==', ['get', 'selected'], true],
           0.22,
           ['==', ['get', 'path'], true],
           0.24,
@@ -272,7 +271,7 @@ const mapStyle: maplibregl.StyleSpecification = {
         'line-color': ['case', ['==', ['get', 'path'], true], '#facc15', ['get', 'color']],
         'line-width': [
           'case',
-          ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+          ['==', ['get', 'selected'], true],
           ROUTE_ACTIVE_WIDTH,
           ['==', ['get', 'path'], true],
           ROUTE_PATH_WIDTH,
@@ -282,7 +281,7 @@ const mapStyle: maplibregl.StyleSpecification = {
         ],
         'line-opacity': [
           'case',
-          ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+          ['==', ['get', 'selected'], true],
           ROUTE_ACTIVE_OPACITY,
           ['==', ['get', 'path'], true],
           ROUTE_PATH_OPACITY,
@@ -454,12 +453,10 @@ export default function CanadaMap({
   onPositionedNodesRendered,
   onViewChange,
   onSelectNode,
-  onSelectRoute,
   onPlotNodePick,
   onPlotMapPoint,
   onClearSelection
 }: Props) {
-  const [hoveredRouteID, setHoveredRouteID] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<HoveredNodeToast | null>(null);
   const [screenNodeLabels, setScreenNodeLabels] = useState<ScreenNodeLabel[]>([]);
   const [messageBubbles, setMessageBubbles] = useState<MessageBubble[]>([]);
@@ -506,7 +503,6 @@ export default function CanadaMap({
   const positionedNodesRenderedRef = useRef(onPositionedNodesRendered);
   const viewChangeRef = useRef(onViewChange);
   const selectedNodeRef = useRef(onSelectNode);
-  const selectedRouteRef = useRef(onSelectRoute);
   const plotModeRef = useRef(plotMode);
   const plotNodePickRef = useRef(onPlotNodePick);
   const plotMapPointRef = useRef(onPlotMapPoint);
@@ -608,12 +604,11 @@ export default function CanadaMap({
     positionedNodesRenderedRef.current = onPositionedNodesRendered;
     viewChangeRef.current = onViewChange;
     selectedNodeRef.current = onSelectNode;
-    selectedRouteRef.current = onSelectRoute;
     plotModeRef.current = plotMode;
     plotNodePickRef.current = onPlotNodePick;
     plotMapPointRef.current = onPlotMapPoint;
     clearSelectionRef.current = onClearSelection;
-  }, [onPositionedNodesRendered, onViewChange, onSelectNode, onSelectRoute, plotMode, onPlotNodePick, onPlotMapPoint, onClearSelection]);
+  }, [onPositionedNodesRendered, onViewChange, onSelectNode, plotMode, onPlotNodePick, onPlotMapPoint, onClearSelection]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -707,7 +702,7 @@ export default function CanadaMap({
       }
       try {
         addPublicLayers(map);
-        bindLayerEvents(map, nodesRef, selectedNodeRef, selectedRouteRef, plotModeRef, plotNodePickRef, plotMapPointRef, clearSelectionRef, setHoveredRouteID, setHoveredNode);
+        bindLayerEvents(map, nodesRef, selectedNodeRef, plotModeRef, plotNodePickRef, plotMapPointRef, clearSelectionRef, setHoveredNode);
         try {
           addBaseMapLayer(map);
         } catch {
@@ -732,7 +727,7 @@ export default function CanadaMap({
         });
       }
       setSourceData(map, NODE_SOURCE, nodesToGeoJSON(nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current));
-      setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routesRef.current, selectedRouteID, null, nodeFocusRef.current));
+      setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routesRef.current, selectedRouteID, nodeFocusRef.current));
       publishView();
       updateMapOverlays();
       markPositionedNodesReady(map, nodesRef.current, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
@@ -821,9 +816,9 @@ export default function CanadaMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (loadedRef.current) setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routes, selectedRouteID, hoveredRouteID, nodeFocus));
+    if (loadedRef.current) setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routes, selectedRouteID, nodeFocus));
     animatorRef.current?.setRouteColors(new Map(routes.map((route) => [route.id, routeColors[Math.max(0, Math.min(4, route.frequencyBucket))]])));
-  }, [routes, selectedRouteID, hoveredRouteID, nodeFocus]);
+  }, [routes, selectedRouteID, nodeFocus]);
 
   useEffect(() => {
     animatorRef.current?.setPaused(paused);
@@ -1017,7 +1012,7 @@ function addPublicLayers(map: maplibregl.Map) {
     paint: {
       'line-color': [
         'case',
-        ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+        ['==', ['get', 'selected'], true],
         '#f8fafc',
         ['==', ['get', 'path'], true],
         '#facc15',
@@ -1027,7 +1022,7 @@ function addPublicLayers(map: maplibregl.Map) {
       ],
       'line-width': [
         'case',
-        ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+        ['==', ['get', 'selected'], true],
         8,
         ['==', ['get', 'path'], true],
         7,
@@ -1038,7 +1033,7 @@ function addPublicLayers(map: maplibregl.Map) {
       'line-blur': 4,
       'line-opacity': [
         'case',
-        ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+        ['==', ['get', 'selected'], true],
         0.22,
         ['==', ['get', 'path'], true],
         0.24,
@@ -1077,7 +1072,7 @@ function addPublicLayers(map: maplibregl.Map) {
       'line-color': ['case', ['==', ['get', 'path'], true], '#facc15', ['get', 'color']],
       'line-width': [
         'case',
-        ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+        ['==', ['get', 'selected'], true],
         ROUTE_ACTIVE_WIDTH,
         ['==', ['get', 'path'], true],
         ROUTE_PATH_WIDTH,
@@ -1087,7 +1082,7 @@ function addPublicLayers(map: maplibregl.Map) {
       ],
       'line-opacity': [
         'case',
-        ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'hovered'], true]],
+        ['==', ['get', 'selected'], true],
         ROUTE_ACTIVE_OPACITY,
         ['==', ['get', 'path'], true],
         ROUTE_PATH_OPACITY,
@@ -1920,12 +1915,10 @@ function bindLayerEvents(
   map: maplibregl.Map,
   nodesRef: MutableRefObject<PublicNode[]>,
   selectedNodeRef: MutableRefObject<(nodeID: string) => void>,
-  selectedRouteRef: MutableRefObject<(routeID: string) => void>,
   plotModeRef: MutableRefObject<'off' | 'node' | 'area'>,
   plotNodePickRef: MutableRefObject<(nodeID: string) => void>,
   plotMapPointRef: MutableRefObject<(point: { lat: number; lng: number }) => void>,
   clearSelectionRef: MutableRefObject<() => void>,
-  setHoveredRouteID: Dispatch<SetStateAction<string | null>>,
   setHoveredNode: Dispatch<SetStateAction<HoveredNodeToast | null>>
 ) {
   const expandClusterFeature = async (feature: maplibregl.MapGeoJSONFeature | undefined) => {
@@ -1982,39 +1975,13 @@ function bindLayerEvents(
       : undefined;
     if (await expandClusterFeature(clusterFeature)) return;
 
-    const routeLayers = [ROUTE_HIT_LAYER].filter((layerID) => map.getLayer(layerID));
-    const routeFeature = routeLayers.length > 0
-      ? map.queryRenderedFeatures(event.point, { layers: routeLayers }).find((feature) => typeof feature.properties?.id === 'string')
-      : undefined;
-    const routeID = routeFeature?.properties?.id;
-    if (typeof routeID === 'string') {
-      if (plotModeRef.current === 'node') return;
-      selectedRouteRef.current(routeID);
-      return;
-    }
-
     clearSelectionRef.current();
   });
   map.on('mousemove', NODE_LAYER, handleNodePointerMove);
   map.on('mousemove', OBSERVER_LAYER, handleNodePointerMove);
   map.on('mouseleave', NODE_LAYER, () => setHoveredNode(null));
   map.on('mouseleave', OBSERVER_LAYER, () => setHoveredNode(null));
-  map.on('mousemove', ROUTE_HIT_LAYER, (event) => {
-    const nodeLayers = [OBSERVER_LAYER, NODE_LAYER].filter((layerID) => map.getLayer(layerID));
-    if (nodeLayers.length > 0 && map.queryRenderedFeatures(event.point, { layers: nodeLayers }).length > 0) {
-      setHoveredRouteID(null);
-      return;
-    }
-    const feature = event.features?.[0];
-    const id = feature?.properties?.id;
-    if (typeof id === 'string') {
-      setHoveredRouteID((current) => (current === id ? current : id));
-    }
-  });
-  map.on('mouseleave', ROUTE_HIT_LAYER, () => {
-    setHoveredRouteID(null);
-  });
-  for (const layer of [CLUSTER_LAYER, CLUSTER_COUNT_LAYER, NODE_LAYER, OBSERVER_LAYER, ROUTE_HIT_LAYER]) {
+  for (const layer of [CLUSTER_LAYER, CLUSTER_COUNT_LAYER, NODE_LAYER, OBSERVER_LAYER]) {
     map.on('mouseenter', layer, () => {
       map.getCanvas().style.cursor = 'pointer';
     });
@@ -2109,17 +2076,15 @@ function recentNodeActivity(nodeID: string, now: number, meshActivityAtByNodeID:
 function routesToGeoJSON(
   routes: PublicRoute[],
   selectedRouteID: string | null,
-  hoveredRouteID: string | null,
   focus: NodeFocus
 ): FeatureCollection {
-  const hasFocusedRoute = Boolean(selectedRouteID || hoveredRouteID || focus.selectedNodeID || focus.pathRouteIDs.size > 0);
+  const hasFocusedRoute = Boolean(selectedRouteID || focus.selectedNodeID || focus.pathRouteIDs.size > 0);
   return {
     type: 'FeatureCollection',
     features: routes
       .filter((route) => isMappableEndpoint(route.from) && isMappableEndpoint(route.to))
       .map((route) => {
         const selected = route.id === selectedRouteID;
-        const hovered = route.id === hoveredRouteID;
         const connected = focus.connectedRouteIDs.has(route.id);
         const path = focus.pathRouteIDs.has(route.id);
         return {
@@ -2129,10 +2094,9 @@ function routesToGeoJSON(
             id: route.id,
             color: routeColors[Math.max(0, Math.min(4, route.frequencyBucket))],
             selected,
-            hovered,
             path,
             connected,
-            dimmed: hasFocusedRoute && !selected && !hovered && !path && !connected
+            dimmed: hasFocusedRoute && !selected && !path && !connected
           },
           geometry: {
             type: 'LineString',

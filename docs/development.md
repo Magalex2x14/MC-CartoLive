@@ -84,19 +84,28 @@ legend, and busy-path lists are hidden by default at small viewport widths.
 
 At detail zoom, click a repeater, observer, room, companion, or sensor to test
 the connectivity focus. Directly served routes and direct neighbors should
-brighten while unrelated routes and nodes dim. The phonebook panel should group
-reachable nodes by hop count, highest first, and clicking a row should highlight
-the shortest valid public route path without changing the selected source node.
+brighten while unrelated routes and nodes dim. The phonebook panel should put
+least-hop useful routes first by default, allow search by city/region/node
+label/public ID/route prefix, support distance filtering, and clicking a row
+should highlight the shortest valid public route path without changing the
+selected source node.
+
+Route lines on the map are intentionally passive: mouse hover should not glow a
+route, and clicking a dense route line should either select an overlapping node,
+expand a cluster, or clear selection on empty map space.
 
 Escape, the panel close button, and an empty map click should clear node, route,
 and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v1.3 route-copy checks:
+For v1.3.1 route-copy and phonebook checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
+- Use the phonebook search box and distance filter to narrow reachable nodes,
+  then switch between Best route, Shortest, Busiest, Nearest, and Most recent.
+  The default should never put maximum-hop routes at the top.
 - The copy button should use `pathHash3` route endpoint fields only; full public
   keys must never be exposed.
 - Click Plot routes, choose two node endpoints, and confirm the shortest public

@@ -19,9 +19,7 @@ describe('route line styles', () => {
     expect(routeLineWidth({})).toBe(ROUTE_BASE_WIDTH);
   });
 
-  it('lifts hovered and selected routes without exceeding packet priority', () => {
-    expect(routeLineOpacity({ hovered: true })).toBe(ROUTE_ACTIVE_OPACITY);
-    expect(routeLineWidth({ hovered: true })).toBe(ROUTE_ACTIVE_WIDTH);
+  it('lifts explicitly selected routes without exceeding packet priority', () => {
     expect(routeLineOpacity({ selected: true })).toBe(ROUTE_ACTIVE_OPACITY);
     expect(routeLineWidth({ selected: true })).toBe(ROUTE_ACTIVE_WIDTH);
   });
@@ -30,14 +28,14 @@ describe('route line styles', () => {
     expect(routeLineOpacity({ dimmed: true })).toBe(ROUTE_DIMMED_OPACITY);
     expect(routeLineWidth({ dimmed: true })).toBe(ROUTE_BASE_WIDTH);
     expect(routeLineOpacity({ selected: true, dimmed: true })).toBe(ROUTE_ACTIVE_OPACITY);
-    expect(routeLineWidth({ hovered: true, dimmed: true })).toBe(ROUTE_ACTIVE_WIDTH);
+    expect(routeLineWidth({ selected: true, dimmed: true })).toBe(ROUTE_ACTIVE_WIDTH);
   });
 
-  it('lifts connected neighbour routes below hovered and selected routes', () => {
+  it('lifts connected neighbour routes below explicitly selected routes', () => {
     expect(routeLineOpacity({ connected: true })).toBe(ROUTE_CONNECTED_OPACITY);
     expect(routeLineWidth({ connected: true })).toBe(ROUTE_CONNECTED_WIDTH);
     expect(routeLineOpacity({ connected: true, selected: true })).toBe(ROUTE_ACTIVE_OPACITY);
-    expect(routeLineWidth({ connected: true, hovered: true })).toBe(ROUTE_ACTIVE_WIDTH);
+    expect(routeLineWidth({ connected: true, selected: true })).toBe(ROUTE_ACTIVE_WIDTH);
   });
 
   it('shows phonebook paths above direct connected routes but below explicit route selection', () => {

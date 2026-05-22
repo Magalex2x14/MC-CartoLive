@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v1.3
+# MeshCore MQTT Live Map v1.3.1
 
 Also known as **MC-CartoLive**.
 
@@ -31,7 +31,8 @@ Real public map data from the local production container:
 - Resolves RF paths conservatively, without drawing guessed routes.
 - Shows low-zoom cluster activity and high-zoom route/node detail.
 - Lets users select repeaters, observers, rooms, companions, or sensors to highlight directly served RF routes and connected nodes.
-- Adds a reachable-node phonebook that groups valid public route paths by hop count, highlights a selected multi-hop path, and can copy MeshCore 3-byte route prefixes.
+- Keeps route lines passive on the map so dense RF paths do not steal clicks from nodes.
+- Adds a searchable reachable-node phonebook that defaults to useful shortest-path routes first, can filter by distance, supports best/shortest/busiest/nearest/recent sorting, highlights a selected multi-hop path, and can copy MeshCore 3-byte route prefixes.
 - Adds a Plot routes control for choosing two node endpoints or two map corners and highlighting matching public RF routes.
 - Shows decoded public chatter history for the selected node when sanitized message text is available in the live window.
 - Animates live packet comets, observer bursts, route payload glows, and message bubbles.
@@ -143,7 +144,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v1.3 release path is clone + Docker Compose on a VPS or local
+The recommended v1.3.1 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

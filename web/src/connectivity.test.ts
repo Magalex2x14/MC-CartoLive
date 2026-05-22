@@ -54,7 +54,7 @@ describe('connectivity graph', () => {
     expect(direct.nodes.map((item) => item.id)).toEqual(['b']);
   });
 
-  it('groups reachable nodes by hop count with max hops first', () => {
+  it('groups reachable nodes by hop count with shortest paths first', () => {
     const graph = buildConnectivityGraph(
       [node('a'), node('b'), node('c'), node('d')],
       [route('a-b', 'a', 'b', 10, 100), route('b-c', 'b', 'c', 6, 90), route('c-d', 'c', 'd', 3, 80)]
@@ -62,12 +62,12 @@ describe('connectivity graph', () => {
 
     const groups = phonebookGroupsForNode(graph, 'a');
 
-    expect(groups.map((group) => group.hopCount)).toEqual([3, 2, 1]);
-    expect(groups[0].nodes.map((item) => item.node.id)).toEqual(['d']);
-    expect(groups[2].nodes.map((item) => item.node.id)).toEqual(['b']);
+    expect(groups.map((group) => group.hopCount)).toEqual([1, 2, 3]);
+    expect(groups[0].nodes.map((item) => item.node.id)).toEqual(['b']);
+    expect(groups[2].nodes.map((item) => item.node.id)).toEqual(['d']);
   });
 
-  it('sorts phonebook rows by most active node inside each hop group', () => {
+  it('sorts default phonebook rows by strongest useful route inside each hop group', () => {
     const graph = buildConnectivityGraph(
       [node('a'), node('b', 4), node('c', 30), node('d', 12)],
       [route('a-b', 'a', 'b', 8, 100), route('a-c', 'a', 'c', 5, 90), route('a-d', 'a', 'd', 20, 80)]
@@ -76,7 +76,42 @@ describe('connectivity graph', () => {
     const groups = phonebookGroupsForNode(graph, 'a');
 
     expect(groups[0].hopCount).toBe(1);
-    expect(groups[0].nodes.map((item) => item.node.id)).toEqual(['c', 'd', 'b']);
+    expect(groups[0].nodes.map((item) => item.node.id)).toEqual(['d', 'b', 'c']);
+  });
+
+  it('filters phonebook rows by label, region, id, path label, and distance', () => {
+    const graph = buildConnectivityGraph(
+      [node('a'), { ...node('b'), label: 'Ottawa North' }, { ...node('c'), iatasHeardIn: ['YOW'] }, node('d')],
+      [
+        route('a-b', 'a', 'b', 8, 100, 42),
+        route('a-c', 'a', 'c', 5, 90, 120),
+        route('a-d', 'a', 'd', 20, 80, 400)
+      ]
+    );
+
+    expect(phonebookGroupsForNode(graph, 'a', { query: 'ottawa' }).flatMap((group) => group.nodes).map((item) => item.node.id)).toEqual(['b']);
+    expect(phonebookGroupsForNode(graph, 'a', { query: 'yow' }).flatMap((group) => group.nodes).map((item) => item.node.id)).toEqual(['c']);
+    expect(phonebookGroupsForNode(graph, 'a', { query: 'dddddd' }).flatMap((group) => group.nodes).map((item) => item.node.id)).toEqual(['d']);
+    expect(phonebookGroupsForNode(graph, 'a', { maxDistanceKm: 100 }).flatMap((group) => group.nodes).map((item) => item.node.id)).toEqual(['b']);
+  });
+
+  it('supports shortest, busiest, nearest, and recent phonebook sorting', () => {
+    const graph = buildConnectivityGraph(
+      [node('a'), node('b'), node('c'), node('d')],
+      [
+        route('a-b', 'a', 'b', 8, 300, 200),
+        route('a-c', 'a', 'c', 80, 100, 40),
+        route('a-d', 'a', 'd', 20, 500, 90)
+      ]
+    );
+
+    const rows = (sortMode: 'shortest' | 'busiest' | 'nearest' | 'recent') =>
+      phonebookGroupsForNode(graph, 'a', { sortMode })[0].nodes.map((item) => item.node.id);
+
+    expect(rows('shortest')).toEqual(['c', 'd', 'b']);
+    expect(rows('busiest')).toEqual(['c', 'd', 'b']);
+    expect(rows('nearest')).toEqual(['c', 'd', 'b']);
+    expect(rows('recent')).toEqual(['d', 'b', 'c']);
   });
 
   it('prefers fewer hops, then stronger and more recent route paths', () => {

@@ -1,5 +1,6 @@
-import { Copy, MessageSquareText, X } from 'lucide-react';
-import type { PhonebookGroup, ReachableNode } from '../connectivity';
+import { Copy, MessageSquareText, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { phonebookGroupsForNode, type ConnectivityGraph, type PhonebookGroup, type PhonebookSortMode, type ReachableNode } from '../connectivity';
 import { meshcorePathAvailable, meshcorePathCopyText, type NodeMessageHistoryItem } from '../routeTools';
 import type { PublicNode, PublicRoute } from '../types';
 
@@ -8,6 +9,7 @@ interface Props {
   route: PublicRoute | null;
   connectedRoutes: PublicRoute[];
   phonebookGroups: PhonebookGroup[];
+  connectivityGraph: ConnectivityGraph;
   selectedPath: ReachableNode | null;
   selectedPathTargetID: string | null;
   messageHistory: NodeMessageHistoryItem[];
@@ -23,6 +25,7 @@ export default function SelectionDrawer({
   route,
   connectedRoutes,
   phonebookGroups,
+  connectivityGraph,
   selectedPath,
   selectedPathTargetID,
   messageHistory,
@@ -32,8 +35,21 @@ export default function SelectionDrawer({
   onCopyPath,
   onClose
 }: Props) {
-  if (!node && !route) return null;
+  const [phonebookQuery, setPhonebookQuery] = useState('');
+  const [phonebookSort, setPhonebookSort] = useState<PhonebookSortMode>('best');
+  const [maxDistanceKm, setMaxDistanceKm] = useState<number | null>(null);
+  useEffect(() => {
+    setPhonebookQuery('');
+    setPhonebookSort('best');
+    setMaxDistanceKm(null);
+  }, [node?.id]);
   const reachableCount = phonebookGroups.reduce((total, group) => total + group.nodes.length, 0);
+  const filteredPhonebookGroups = useMemo(
+    () => phonebookGroupsForNode(connectivityGraph, node?.id ?? null, { query: phonebookQuery, sortMode: phonebookSort, maxDistanceKm }),
+    [connectivityGraph, maxDistanceKm, node?.id, phonebookQuery, phonebookSort]
+  );
+  const filteredReachableCount = filteredPhonebookGroups.reduce((total, group) => total + group.nodes.length, 0);
+  if (!node && !route) return null;
 
   return (
     <div className={`selection-panels ${node ? 'with-phonebook' : 'route-only'}`}>
@@ -89,13 +105,21 @@ export default function SelectionDrawer({
           <PanelCloseButton onClose={onClose} />
           <span className="eyebrow">phonebook</span>
           <h2>Reachable nodes</h2>
-          <p className="phonebook-summary">{reachableCount.toLocaleString()} nodes through valid public routes</p>
+          <p className="phonebook-summary">{filteredReachableCount.toLocaleString()} of {reachableCount.toLocaleString()} nodes through valid public routes</p>
+          <PhonebookControls
+            query={phonebookQuery}
+            sort={phonebookSort}
+            maxDistanceKm={maxDistanceKm}
+            onQueryChange={setPhonebookQuery}
+            onSortChange={setPhonebookSort}
+            onMaxDistanceChange={setMaxDistanceKm}
+          />
           {selectedPath && <PhonebookCopyCard item={selectedPath} copyStatus={copyStatus} onCopyPath={onCopyPath} />}
-          {phonebookGroups.length === 0 ? (
-            <p className="phonebook-empty">No reachable nodes in the current public route graph.</p>
+          {filteredPhonebookGroups.length === 0 ? (
+            <p className="phonebook-empty">{reachableCount === 0 ? 'No reachable nodes in the current public route graph.' : 'No reachable nodes match the current phonebook filters.'}</p>
           ) : (
             <div className="phonebook-groups">
-              {phonebookGroups.map((group) => (
+              {filteredPhonebookGroups.map((group) => (
                 <section className="phonebook-group" key={group.hopCount}>
                   <h3>{group.hopCount} {group.hopCount === 1 ? 'hop' : 'hops'}</h3>
                   <div className="phonebook-list">
@@ -114,6 +138,63 @@ export default function SelectionDrawer({
           )}
         </aside>
       )}
+    </div>
+  );
+}
+
+function PhonebookControls({
+  query,
+  sort,
+  maxDistanceKm,
+  onQueryChange,
+  onSortChange,
+  onMaxDistanceChange
+}: {
+  query: string;
+  sort: PhonebookSortMode;
+  maxDistanceKm: number | null;
+  onQueryChange: (value: string) => void;
+  onSortChange: (value: PhonebookSortMode) => void;
+  onMaxDistanceChange: (value: number | null) => void;
+}) {
+  return (
+    <div className="phonebook-tools">
+      <label className="phonebook-search">
+        <Search size={13} />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search city, region, repeater, ID"
+        />
+        {query && (
+          <button type="button" onClick={() => onQueryChange('')} aria-label="Clear phonebook search">
+            <X size={12} />
+          </button>
+        )}
+      </label>
+      <div className="phonebook-filter-row">
+        <label>
+          <span>Sort</span>
+          <select value={sort} onChange={(event) => onSortChange(event.target.value as PhonebookSortMode)}>
+            <option value="best">Best route</option>
+            <option value="shortest">Shortest</option>
+            <option value="busiest">Busiest</option>
+            <option value="nearest">Nearest</option>
+            <option value="recent">Most recent</option>
+          </select>
+        </label>
+        <label>
+          <span>Distance</span>
+          <select value={maxDistanceKm ?? ''} onChange={(event) => onMaxDistanceChange(event.target.value ? Number(event.target.value) : null)}>
+            <option value="">Any</option>
+            <option value="50">under 50 km</option>
+            <option value="100">under 100 km</option>
+            <option value="250">under 250 km</option>
+            <option value="500">under 500 km</option>
+            <option value="1000">under 1000 km</option>
+          </select>
+        </label>
+      </div>
     </div>
   );
 }

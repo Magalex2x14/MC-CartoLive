@@ -401,7 +401,6 @@ export default function App() {
         onPositionedNodesRendered={handlePositionedNodesRendered}
         onViewChange={handleViewChange}
         onSelectNode={selectNode}
-        onSelectRoute={selectRoute}
         onPlotNodePick={handlePlotNodePick}
         onPlotMapPoint={handlePlotMapPoint}
         onClearSelection={clearSelection}
@@ -478,6 +477,7 @@ export default function App() {
         route={selectedRoute}
         connectedRoutes={selectedConnectivity.routes}
         phonebookGroups={phonebookGroups}
+        connectivityGraph={connectivityGraph}
         selectedPath={selectedPhonebookPath}
         selectedPathTargetID={highlightedPathTargetID}
         messageHistory={selectedNodeMessageHistory}

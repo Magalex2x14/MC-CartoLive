@@ -39,6 +39,14 @@ export interface PhonebookGroup {
   nodes: ReachableNode[];
 }
 
+export type PhonebookSortMode = 'best' | 'shortest' | 'busiest' | 'nearest' | 'recent';
+
+export interface PhonebookFilterOptions {
+  query?: string;
+  maxDistanceKm?: number | null;
+  sortMode?: PhonebookSortMode;
+}
+
 export interface HighlightedPath {
   targetNodeID: string;
   routeIDs: string[];
@@ -103,10 +111,11 @@ export function directConnectivity(graph: ConnectivityGraph, selectedNodeID: str
   return { routeIDs, nodeIDs, routes, nodes };
 }
 
-export function phonebookGroupsForNode(graph: ConnectivityGraph, selectedNodeID: string | null): PhonebookGroup[] {
+export function phonebookGroupsForNode(graph: ConnectivityGraph, selectedNodeID: string | null, options: PhonebookFilterOptions = {}): PhonebookGroup[] {
   if (!selectedNodeID || !graph.nodesByID.has(selectedNodeID)) return [];
   const paths = reachablePaths(graph, selectedNodeID);
   const groups = new Map<number, ReachableNode[]>();
+  const sortMode = options.sortMode ?? 'best';
 
   for (const path of paths.values()) {
     if (path.nodeID === selectedNodeID) continue;
@@ -125,14 +134,15 @@ export function phonebookGroupsForNode(graph: ConnectivityGraph, selectedNodeID:
       pathHash3: path.pathHash3,
       meshcorePath3: meshcorePath3(path.pathHash3)
     };
+    if (!phonebookItemMatches(item, options)) continue;
     groups.set(path.hopCount, [...(groups.get(path.hopCount) ?? []), item]);
   }
 
   return [...groups.entries()]
-    .sort(([leftHop], [rightHop]) => rightHop - leftHop)
+    .sort(([leftHop], [rightHop]) => leftHop - rightHop)
     .map(([hopCount, nodes]) => ({
       hopCount,
-      nodes: nodes.sort(compareReachableNodes)
+      nodes: nodes.sort((left, right) => compareReachableNodes(left, right, sortMode))
     }));
 }
 
@@ -250,11 +260,44 @@ function compareNodesByActivity(left: PublicNode, right: PublicNode): number {
   return right.activityCount - left.activityCount || right.lastSeen - left.lastSeen || left.label.localeCompare(right.label);
 }
 
-function compareReachableNodes(left: ReachableNode, right: ReachableNode): number {
+function phonebookItemMatches(item: ReachableNode, options: PhonebookFilterOptions): boolean {
+  if (options.maxDistanceKm && item.totalDistanceKm > options.maxDistanceKm) return false;
+  const query = (options.query ?? '').trim().toLowerCase();
+  if (!query) return true;
+  return phonebookSearchFields(item).some((value) => value.toLowerCase().includes(query));
+}
+
+function phonebookSearchFields(item: ReachableNode): string[] {
+  return [
+    item.node.id,
+    item.node.label,
+    item.node.role,
+    item.meshcorePath3,
+    ...item.node.iatasHeardIn,
+    ...item.endpointLabels
+  ].filter(Boolean);
+}
+
+function compareReachableNodes(left: ReachableNode, right: ReachableNode, sortMode: PhonebookSortMode = 'best'): number {
+  if (sortMode === 'shortest') {
+    return left.hopCount - right.hopCount || left.totalDistanceKm - right.totalDistanceKm || compareReachableNodes(left, right, 'best');
+  }
+  if (sortMode === 'busiest') {
+    return right.totalRoutePackets - left.totalRoutePackets || right.strongestRoutePacketCount - left.strongestRoutePacketCount || compareReachableNodes(left, right, 'best');
+  }
+  if (sortMode === 'nearest') {
+    return left.totalDistanceKm - right.totalDistanceKm || left.hopCount - right.hopCount || compareReachableNodes(left, right, 'best');
+  }
+  if (sortMode === 'recent') {
+    return right.lastHeard - left.lastHeard || left.hopCount - right.hopCount || compareReachableNodes(left, right, 'best');
+  }
   return (
-    right.node.activityCount - left.node.activityCount ||
+    left.hopCount - right.hopCount ||
     right.strongestRoutePacketCount - left.strongestRoutePacketCount ||
+    right.totalRoutePackets - left.totalRoutePackets ||
     right.lastHeard - left.lastHeard ||
+    left.totalDistanceKm - right.totalDistanceKm ||
+    right.node.activityCount - left.node.activityCount ||
     left.node.label.localeCompare(right.node.label)
   );
 }

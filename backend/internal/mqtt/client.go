@@ -85,11 +85,16 @@ func (c *Client) Start(ctx context.Context) error {
 
 	c.client = paho.NewClient(opts)
 	token := c.client.Connect()
-	token.Wait()
-	if err := token.Error(); err != nil {
-		c.connected.Store(false)
-		return err
-	}
+	go func() {
+		if !token.WaitTimeout(10 * time.Second) {
+			c.log.Warn("mqtt initial connect still pending; continuing startup")
+			token.Wait()
+		}
+		if err := token.Error(); err != nil {
+			c.connected.Store(false)
+			c.log.Error("mqtt connect failed", "error", err)
+		}
+	}()
 
 	go func() {
 		<-ctx.Done()

@@ -97,17 +97,38 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 1.4.0 exposes the app version/build in the top project bar. CI builds use
-  the Git commit SHA when available; local Docker builds use a timestamp fallback.
+- Version 2.1.0 exposes the app version/build in the top project bar. CI builds use
+  the Git commit SHA when available; local Docker builds use a timestamp fallback
+  plus a separate ISO build time for build-age display.
+- Docker Compose forwards optional `VITE_BUILD_NUMBER`, `VITE_GIT_SHA`, and
+  `VITE_BUILD_TIME` build args so release builds can link directly to the
+  source commit.
 - `PUBLIC_BASE_URL` must match the public browser origin so WebSocket origin checks pass.
 - `PUBLIC_IATAS` should stay restricted to supported Canada IATA region codes.
 - Keep `PUBLIC_MODE=true` on public hosts.
 - The compose file mounts `./data` read/write and `./examples` read-only.
 - Container logs are rotated by Docker Compose to avoid unbounded local log growth.
 - Health checks use `/healthz`, which reads cached public state when available so SQLite ingest pressure does not make Docker health checks flap.
-- Route glow, cluster role badges, hover-only ordinary labels, and the
-  Original/OpenFreeMap map toggle are frontend-only features and do not require
-  public API schema changes.
+- Route glow, cluster role badges, hover-only ordinary labels, the VCR playback
+  surface, live pulse clock, and the Original/OpenFreeMap map toggle use only sanitized public state,
+  WebSocket events, and public history endpoints.
+- Dark/light mode, palette choice, VCR open state, and panel visibility are
+  browser-local UI preferences. They do not require database or API migrations.
+
+## Production 2.1 Readiness Checklist
+
+- Keep `/healthz`, `/api/v1/public/state`, `/ws/public`, and public history
+  checks in every deploy smoke test.
+- Track websocket fanout, MQTT connectivity, public history latency, SQLite
+  read/write errors, and static asset serving errors in logs or host monitoring.
+- Back up `data/meshcore-live.db*` before upgrades and document the restore
+  path for the host running Docker Compose.
+- Audit public JSON responses before each release for raw packet hashes, raw
+  hex payloads, full public keys, resolver debug fields, private MQTT payloads,
+  and private operator config.
+- Browser-test the live container at desktop and narrow mobile widths after UI
+  changes, especially hidden/open VCR offsets, bottom-left action dock, compact
+  Legend under Search, map toggles, palette contrast, and replay history.
 
 ## Troubleshooting
 

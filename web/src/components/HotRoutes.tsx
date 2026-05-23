@@ -20,11 +20,11 @@ export default function HotRoutes({ routes, selectedRouteID, routeActivityByID, 
       <div className="hot-route-list">
         {routes.slice(0, 10).map((route) => {
           const activity = routeActivityByID.get(route.id);
+          const recentCount = activity?.total ?? 0;
           const payloads = payloadVisualsFor(route.payloadTypeNames, 3);
           const hiddenCount = hiddenPayloadCount(route.payloadTypeNames, payloads.length);
-          const hasRecentFlow = (activity?.total ?? 0) > 0;
           return (
-            <button className={`hot-route ${route.id === selectedRouteID ? 'selected' : ''} ${hasRecentFlow ? 'flowing' : ''}`} key={route.id} type="button" onClick={() => onSelect(route.id)}>
+            <button className={`hot-route ${route.id === selectedRouteID ? 'selected' : ''} ${recentCount > 0 ? 'recent' : ''}`} key={route.id} type="button" onClick={() => onSelect(route.id)}>
               <span className={`route-swatch bucket-${route.frequencyBucket}`} />
               <span className="route-labels">
                 <strong>{route.from.label}</strong>
@@ -38,8 +38,10 @@ export default function HotRoutes({ routes, selectedRouteID, routeActivityByID, 
                   {hiddenCount > 0 && <i className="payload-chip mini muted-chip">+{hiddenCount}</i>}
                 </span>
               </span>
-              <RouteActivityBars activity={activity} />
-              <em>{route.packetCount}</em>
+              <span className={`route-recent-count ${recentCount > 0 ? 'active' : ''}`} title={recentPacketCountTitle(recentCount, route.packetCount)}>
+                <strong>{recentPacketCountText(recentCount)}</strong>
+                <small>15m</small>
+              </span>
             </button>
           );
         })}
@@ -49,18 +51,12 @@ export default function HotRoutes({ routes, selectedRouteID, routeActivityByID, 
   );
 }
 
-function RouteActivityBars({ activity }: { activity?: RouteActivitySummary }) {
-  const bins = activity?.bins ?? Array.from({ length: 12 }, () => 0);
-  const max = Math.max(1, ...bins);
-  const total = activity?.total ?? 0;
-  return (
-    <span className="route-flow" title={`${total} packets in the last 15 minutes`}>
-      <span className="route-spark">
-        {bins.map((count, index) => (
-          <i key={index} style={{ '--level': `${Math.max(0.08, count / max)}` } as CSSProperties} className={count > 0 ? 'active' : ''} />
-        ))}
-      </span>
-      <span className={`flow-cue ${total > 0 ? 'visible' : ''}`}>{total > 0 ? 'Flow visible' : 'Quiet'}</span>
-    </span>
-  );
+export function recentPacketCountText(count: number): string {
+  return Math.max(0, Math.floor(count)).toLocaleString();
+}
+
+export function recentPacketCountTitle(recentCount: number, lifetimeCount: number): string {
+  const recent = Math.max(0, Math.floor(recentCount));
+  const lifetime = Math.max(0, Math.floor(lifetimeCount));
+  return `${recent.toLocaleString()} ${recent === 1 ? 'packet' : 'packets'} in the last 15 minutes; ${lifetime.toLocaleString()} lifetime`;
 }

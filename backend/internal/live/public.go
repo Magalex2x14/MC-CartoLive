@@ -115,6 +115,39 @@ type PublicLiveState struct {
 	RecentActivity []PublicActivity   `json:"recentActivity"`
 }
 
+type PublicHistoryEvent struct {
+	Type string `json:"type"`
+	At   int64  `json:"at"`
+	Data any    `json:"data"`
+}
+
+type PublicHistoryWindow struct {
+	From  int64 `json:"from"`
+	To    int64 `json:"to"`
+	Count int   `json:"count"`
+}
+
+type PublicHistoryResponse struct {
+	ServerTime int64                `json:"serverTime"`
+	Events     []PublicHistoryEvent `json:"events"`
+	NextCursor string               `json:"nextCursor,omitempty"`
+	Window     PublicHistoryWindow  `json:"window"`
+}
+
+type PublicHistorySummaryBucket struct {
+	Start int64 `json:"start"`
+	End   int64 `json:"end"`
+	Count int64 `json:"count"`
+}
+
+type PublicHistorySummaryResponse struct {
+	ServerTime int64                        `json:"serverTime"`
+	From       int64                        `json:"from"`
+	To         int64                        `json:"to"`
+	BucketMs   int64                        `json:"bucketMs"`
+	Buckets    []PublicHistorySummaryBucket `json:"buckets"`
+}
+
 func BuildPublicLiveState(state State, stats PublicStats) PublicLiveState {
 	pathHash3ByNodeID := BuildPublicPathHash3Index(state.Nodes, state.Observers)
 	routes, routesByPacket := BuildPublicRoutes(state.RecentEdgeEvents, pathHash3ByNodeID)

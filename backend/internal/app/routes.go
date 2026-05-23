@@ -18,11 +18,12 @@ func (a *Application) Routes() http.Handler {
 			StrictRFOnly:         a.Config.StrictRFOnly,
 			MaxUnverifiedEdgeKM:  a.Config.MaxUnverifiedEdgeKM,
 		},
-		Store:         a.Store,
-		Hub:           a.Hub,
-		PublicHub:     a.PublicHub,
-		MQTTConnected: a.MQTT.Connected,
-		MQTTTotal:     a.MQTT.TotalMessages,
-		PublicState:   a.PublicCache.Snapshot,
+		Store:            a.Store,
+		Hub:              a.Hub,
+		PublicHub:        a.PublicHub,
+		MQTTConnected:    a.MQTT.Connected,
+		MQTTTotal:        a.MQTT.TotalMessages,
+		PublicState:      a.PublicCache.Snapshot,
+		PublicAllowsIATA: a.PublicCache.AllowsIATA,
 	}).Routes()
 }

@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v1.4.0
+# MeshCore MQTT Live Map v2.1.0
 
 Also known as **MC-CartoLive**.
 
@@ -41,9 +41,14 @@ Real public map data from the local production container:
 - Adds a Plot routes control for choosing two node endpoints or two map corners and highlighting matching public RF routes.
 - Shows decoded public chatter history for the selected node when sanitized message text is available in the live window.
 - Animates live packet comets, sustained observer activity aura, route payload glows, and message bubbles.
-- Includes a compact project bar with MeshCore Canada, GitHub, version, and build links.
+- Adds a hidden-by-default VCR playback surface for pausing live motion, replaying missed routed packet comets, scrubbing recent history, and replaying at 0.5x, 1x, 2x, or 4x.
+- Keeps the VCR compact, clear of map controls, and paired with a bottom-right live pulse clock when closed.
+- Adds hideable/snappable Search, compact Legend, and Busy Pathways panels with a top panel restore menu.
+- Shows Busy Pathways as a compact last-15-minute packet-count list instead of a flow graph.
+- Adds client-side dark/light mode and MeshCore Tower palette selection.
+- Includes a transparent project bar with MeshCore Canada, GitHub stars/forks, linked version/build metadata, and build age.
 - Provides a red Live Follow control for smoothly following areas with fresh packet movement.
-- Prioritizes the map on mobile by moving controls to the bottom and hiding secondary panels/toasts.
+- Prioritizes the map on mobile by hiding secondary panels/toasts and keeping the map, packet animations, live clock, and essential controls readable.
 - Serves public state from a backend memory cache instead of rebuilding every request from SQLite.
 - Filters public traffic through the Canada IATA allowlist.
 - Keeps private broker credentials, channel secrets, live DB files, packet hashes, full public keys, raw path hex, and resolver debug details out of public responses.
@@ -61,6 +66,8 @@ Public routes:
 ```text
 GET /healthz
 GET /api/v1/public/state
+GET /api/v1/public/history?from=<ms>&to=<ms>&limit=<n>&cursor=<token>
+GET /api/v1/public/history/summary?from=<ms>&to=<ms>&bucketMs=<n>
 GET /ws/public
 ```
 
@@ -82,6 +89,8 @@ http://localhost:39476
 The dashboard starts in the original MapLibre/CARTO dark view. Use the map
 base toggle in the map controls to switch the same live map to the
 OpenFreeMap 3D view without changing ports or services.
+Use the top theme controls to switch dark/light mode and choose a color
+palette. These are browser-local preferences and do not change backend data.
 
 Optional isolated OpenFreeMap 3D dev stack:
 
@@ -163,7 +172,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v1.4.0 release path is clone + Docker Compose on a VPS or local
+The recommended v2.1.0 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

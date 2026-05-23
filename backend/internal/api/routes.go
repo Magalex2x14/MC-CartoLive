@@ -3,6 +3,7 @@ package api
 import (
 	"compress/gzip"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -27,19 +28,22 @@ type Config struct {
 }
 
 type Server struct {
-	Config        Config
-	Store         *store.Store
-	Hub           *live.Hub
-	PublicHub     *live.Hub
-	MQTTConnected func() bool
-	MQTTTotal     func() int64
-	PublicState   func() (live.PublicLiveState, bool)
+	Config           Config
+	Store            *store.Store
+	Hub              *live.Hub
+	PublicHub        *live.Hub
+	MQTTConnected    func() bool
+	MQTTTotal        func() int64
+	PublicState      func() (live.PublicLiveState, bool)
+	PublicAllowsIATA func(string) bool
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /api/v1/public/state", s.publicState)
+	mux.HandleFunc("GET /api/v1/public/history", s.publicHistory)
+	mux.HandleFunc("GET /api/v1/public/history/summary", s.publicHistorySummary)
 	mux.Handle("GET /ws/public", s.PublicHub)
 	if !s.Config.PublicMode {
 		mux.HandleFunc("GET /api/v1/live/state", s.liveState)
@@ -130,6 +134,275 @@ func (s *Server) publicState(w http.ResponseWriter, r *http.Request) {
 		WSClients:     s.wsClientCount(),
 		ServerTime:    time.Now().UnixMilli(),
 	}))
+}
+
+const (
+	publicHistoryDefaultWindowMs = int64(time.Hour / time.Millisecond)
+	publicHistoryMaxWindowMs     = int64(24 * time.Hour / time.Millisecond)
+	publicHistoryMaxLimit        = 2000
+	publicHistoryDefaultLimit    = 1000
+	publicHistoryTargetBuckets   = 96
+	publicHistoryMaxBuckets      = 288
+)
+
+func (s *Server) publicHistory(w http.ResponseWriter, r *http.Request) {
+	if s.Store == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("store is not available"))
+		return
+	}
+	now := time.Now().UnixMilli()
+	from, to := publicHistoryWindow(r, now)
+	limit := queryInt(r, "limit", publicHistoryDefaultLimit)
+	if limit <= 0 {
+		limit = publicHistoryDefaultLimit
+	}
+	if limit > publicHistoryMaxLimit {
+		limit = publicHistoryMaxLimit
+	}
+	cursor, err := decodeHistoryCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	nodes, observers, err := s.publicLocationInputs(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	observerLocations := live.BuildPublicObserverLocationIndex(nodes, observers)
+	pathHash3ByNodeID := live.BuildPublicPathHash3Index(nodes, observers)
+
+	events := make([]live.PublicHistoryEvent, 0, limit)
+	nextCursor := cursor
+	for len(events) < limit {
+		rawLimit := historyRawPageSize(limit - len(events))
+		rawEvents, err := s.Store.PublicHistoryEvents(r.Context(), store.HistoryQuery{
+			From:   from,
+			To:     to,
+			Limit:  rawLimit,
+			Cursor: nextCursor,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if len(rawEvents) == 0 {
+			nextCursor = nil
+			break
+		}
+		for _, rawEvent := range rawEvents {
+			cursorValue := rawEvent.Cursor()
+			nextCursor = &cursorValue
+			if !s.allowsPublicIATA(rawEvent.IATA()) {
+				continue
+			}
+			event, ok := publicHistoryEvent(rawEvent, observerLocations, pathHash3ByNodeID)
+			if !ok {
+				continue
+			}
+			events = append(events, event)
+			if len(events) >= limit {
+				break
+			}
+		}
+		if len(rawEvents) < rawLimit || len(events) >= limit {
+			break
+		}
+	}
+
+	nextCursorToken := ""
+	if len(events) >= limit && nextCursor != nil {
+		nextCursorToken = encodeHistoryCursor(*nextCursor)
+	}
+	writeJSON(w, http.StatusOK, live.PublicHistoryResponse{
+		ServerTime: now,
+		Events:     events,
+		NextCursor: nextCursorToken,
+		Window: live.PublicHistoryWindow{
+			From:  from,
+			To:    to,
+			Count: len(events),
+		},
+	})
+}
+
+func (s *Server) publicHistorySummary(w http.ResponseWriter, r *http.Request) {
+	if s.Store == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("store is not available"))
+		return
+	}
+	now := time.Now().UnixMilli()
+	from, to := publicHistoryWindow(r, now)
+	bucketMs := queryInt64(r, "bucketMs", 0)
+	if bucketMs <= 0 {
+		bucketMs = defaultHistoryBucketMs(to - from)
+	}
+	if bucketMs < 1000 {
+		bucketMs = 1000
+	}
+	if bucketsForSpan(to-from, bucketMs) > publicHistoryMaxBuckets {
+		bucketMs = ceilDiv(to-from, publicHistoryMaxBuckets)
+	}
+	buckets := make([]live.PublicHistorySummaryBucket, bucketsForSpan(to-from, bucketMs))
+	for i := range buckets {
+		start := from + int64(i)*bucketMs
+		end := start + bucketMs
+		if end > to {
+			end = to
+		}
+		buckets[i] = live.PublicHistorySummaryBucket{Start: start, End: end}
+	}
+	rows, err := s.Store.PublicHistorySummary(r.Context(), from, to, bucketMs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, row := range rows {
+		if !s.allowsPublicIATA(row.IATA) || row.Bucket < 0 || int(row.Bucket) >= len(buckets) {
+			continue
+		}
+		buckets[row.Bucket].Count += row.Count
+	}
+	writeJSON(w, http.StatusOK, live.PublicHistorySummaryResponse{
+		ServerTime: now,
+		From:       from,
+		To:         to,
+		BucketMs:   bucketMs,
+		Buckets:    buckets,
+	})
+}
+
+func (s *Server) publicLocationInputs(r *http.Request) ([]live.Node, []live.Observer, error) {
+	nodes, err := s.Store.Nodes(r.Context(), true, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	observers, err := s.Store.Observers(r.Context())
+	if err != nil {
+		return nil, nil, err
+	}
+	return nodes, observers, nil
+}
+
+func publicHistoryEvent(
+	raw store.HistoryEvent,
+	observerLocations live.PublicObserverLocationIndex,
+	pathHash3ByNodeID map[string]string,
+) (live.PublicHistoryEvent, bool) {
+	switch raw.Type {
+	case "activity":
+		if raw.Edge != nil {
+			activity, ok := live.PublicActivityFromEdge(*raw.Edge)
+			if !ok {
+				return live.PublicHistoryEvent{}, false
+			}
+			return live.PublicHistoryEvent{Type: "activity", At: raw.At, Data: activity}, true
+		}
+		if raw.Packet != nil {
+			activity := live.PublicActivityFromPacket(
+				*raw.Packet,
+				nil,
+				observerLocations.LocationForPublicKey(raw.Packet.ObserverPublicKey, raw.Packet.IATA),
+			)
+			return live.PublicHistoryEvent{Type: "activity", At: raw.At, Data: activity}, true
+		}
+	case "routePulse":
+		if raw.Edge == nil {
+			return live.PublicHistoryEvent{}, false
+		}
+		pulse, ok := live.PublicRoutePulseFromEdge(*raw.Edge, pathHash3ByNodeID)
+		if !ok {
+			return live.PublicHistoryEvent{}, false
+		}
+		return live.PublicHistoryEvent{Type: "routePulse", At: raw.At, Data: pulse}, true
+	}
+	return live.PublicHistoryEvent{}, false
+}
+
+func publicHistoryWindow(r *http.Request, now int64) (int64, int64) {
+	to := queryInt64(r, "to", now)
+	if to <= 0 || to > now {
+		to = now
+	}
+	from := queryInt64(r, "from", to-publicHistoryDefaultWindowMs)
+	if from > to {
+		from = to
+	}
+	if to-from > publicHistoryMaxWindowMs {
+		from = to - publicHistoryMaxWindowMs
+	}
+	if from < 0 {
+		from = 0
+	}
+	return from, to
+}
+
+func historyRawPageSize(remaining int) int {
+	limit := remaining * 4
+	if limit < 200 {
+		limit = 200
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	return limit
+}
+
+func defaultHistoryBucketMs(span int64) int64 {
+	if span <= 0 {
+		return int64(time.Minute / time.Millisecond)
+	}
+	bucketMs := ceilDiv(span, publicHistoryTargetBuckets)
+	if bucketMs < int64(time.Minute/time.Millisecond) {
+		return int64(time.Minute / time.Millisecond)
+	}
+	return bucketMs
+}
+
+func bucketsForSpan(span int64, bucketMs int64) int {
+	if span <= 0 || bucketMs <= 0 {
+		return 1
+	}
+	return int(ceilDiv(span, int(bucketMs)))
+}
+
+func ceilDiv(value int64, divisor int) int64 {
+	if value <= 0 {
+		return 1
+	}
+	d := int64(divisor)
+	return (value + d - 1) / d
+}
+
+func encodeHistoryCursor(cursor store.HistoryCursor) string {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeHistoryCursor(raw string) (*store.HistoryCursor, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, errors.New("invalid history cursor")
+	}
+	var cursor store.HistoryCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, errors.New("invalid history cursor")
+	}
+	return &cursor, nil
+}
+
+func (s *Server) allowsPublicIATA(iata string) bool {
+	if s.PublicAllowsIATA == nil {
+		return true
+	}
+	return s.PublicAllowsIATA(iata)
 }
 
 func (s *Server) liveState(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +516,15 @@ func (s *Server) wsClientCount() int {
 func queryInt(r *http.Request, key string, fallback int) int {
 	if raw := r.URL.Query().Get(key); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func queryInt64(r *http.Request, key string, fallback int64) int64 {
+	if raw := r.URL.Query().Get(key); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil {
 			return parsed
 		}
 	}

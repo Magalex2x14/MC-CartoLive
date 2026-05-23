@@ -134,6 +134,37 @@ export interface PublicLiveState {
   recentActivity: PublicActivity[];
 }
 
+export type PublicHistoryEvent =
+  | { type: 'activity'; at: number; data: PublicActivity }
+  | { type: 'routePulse'; at: number; data: PublicRoutePulse };
+
+export interface PublicHistoryWindow {
+  from: number;
+  to: number;
+  count: number;
+}
+
+export interface PublicHistoryResponse {
+  serverTime: number;
+  events: PublicHistoryEvent[];
+  nextCursor?: string;
+  window: PublicHistoryWindow;
+}
+
+export interface PublicHistorySummaryBucket {
+  start: number;
+  end: number;
+  count: number;
+}
+
+export interface PublicHistorySummaryResponse {
+  serverTime: number;
+  from: number;
+  to: number;
+  bucketMs: number;
+  buckets: PublicHistorySummaryBucket[];
+}
+
 export interface Health {
   ok: boolean;
   mqttConnected: boolean;

@@ -43,6 +43,7 @@ export default function PlotRoutesPanel({
         </button>
         <button type="button" className={`plot-route-button ${mode === 'area' ? 'active' : ''}`} onClick={onStartAreaPlot} title="Select two map points">
           <MapPinned size={14} />
+          <span>Select two</span>
         </button>
         {(mode !== 'off' || result) && (
           <button type="button" className="plot-route-button icon-only" onClick={onCancel} aria-label="Clear plotted routes">

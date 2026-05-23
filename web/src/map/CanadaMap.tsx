@@ -77,6 +77,7 @@ interface Props {
   plotMode: 'off' | 'node' | 'area';
   mapAction: MapAction;
   baseMode: MapBaseMode;
+  themeMode: MapThemeMode;
   initialView: SharedViewState | null;
   loading: boolean;
   onPositionedNodesRendered: () => void;
@@ -154,6 +155,8 @@ const OBSERVER_LAYER = 'observer-symbols';
 const ROUTE_LAYER = 'route-lines';
 const CARTO_DARK_SOURCE = 'carto-dark-tiles';
 const CARTO_DARK_LAYER = 'carto-dark';
+const CARTO_LIGHT_SOURCE = 'carto-light-tiles';
+const CARTO_LIGHT_LAYER = 'carto-light';
 const OPENFREEMAP_SOURCE = 'openfreemap-planet';
 const TERRAIN_SOURCE = 'meshcore-terrain-dem';
 const HILLSHADE_SOURCE = 'meshcore-hillshade-dem';
@@ -187,6 +190,7 @@ const TERRAIN_TILEJSON_URL = envURL('VITE_TERRAIN_TILEJSON_URL', DEFAULT_TERRAIN
 const TERRAIN_EXAGGERATION = envFloat('VITE_TERRAIN_EXAGGERATION', 1.25);
 
 export type MapBaseMode = 'original' | 'openfreemap';
+export type MapThemeMode = 'dark' | 'light';
 
 const ROUTE_FOCUS_FILTER: any = ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'connected'], true]];
 type ClusterRoleBadge = {
@@ -322,6 +326,37 @@ export const originalMapStyle: maplibregl.StyleSpecification = {
       id: CARTO_DARK_LAYER,
       type: 'raster',
       source: CARTO_DARK_SOURCE,
+      minzoom: 0,
+      maxzoom: 20
+    }
+  ]
+};
+
+export const lightOriginalMapStyle: maplibregl.StyleSpecification = {
+  version: 8,
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+  sources: {
+    [CARTO_LIGHT_SOURCE]: {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'
+      ],
+      tileSize: 256,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }
+  },
+  layers: [
+    {
+      id: 'map-background',
+      type: 'background',
+      paint: { 'background-color': '#eef5fb' }
+    },
+    {
+      id: CARTO_LIGHT_LAYER,
+      type: 'raster',
+      source: CARTO_LIGHT_SOURCE,
       minzoom: 0,
       maxzoom: 20
     }
@@ -770,11 +805,113 @@ export const mapOverlayStyle: maplibregl.StyleSpecification = {
   ]
 };
 
+export const lightMapOverlayStyle: maplibregl.StyleSpecification = {
+  ...mapOverlayStyle,
+  layers: mapOverlayStyle.layers.map(lightOverlayLayer)
+};
+
 export const openFreeMapStyle: string | maplibregl.StyleSpecification = OPENFREEMAP_STYLE_URL || mapOverlayStyle;
 export const mapStyle: string | maplibregl.StyleSpecification = originalMapStyle;
 
-function mapStyleForMode(mode: MapBaseMode): string | maplibregl.StyleSpecification {
-  return mode === 'openfreemap' ? openFreeMapStyle : originalMapStyle;
+function openFreeMapStyleForTheme(themeMode: MapThemeMode): string | maplibregl.StyleSpecification {
+  if (OPENFREEMAP_STYLE_URL) return OPENFREEMAP_STYLE_URL;
+  return themeMode === 'light' ? lightMapOverlayStyle : mapOverlayStyle;
+}
+
+function mapStyleForMode(mode: MapBaseMode, themeMode: MapThemeMode): string | maplibregl.StyleSpecification {
+  if (mode === 'openfreemap') return openFreeMapStyleForTheme(themeMode);
+  return themeMode === 'light' ? lightOriginalMapStyle : originalMapStyle;
+}
+
+function lightOverlayLayer(layer: maplibregl.LayerSpecification): maplibregl.LayerSpecification {
+  const next = { ...layer, paint: { ...((layer as any).paint ?? {}) } } as any;
+  switch (layer.id) {
+    case 'map-background':
+      next.paint['background-color'] = '#eef5fb';
+      break;
+    case 'dark-landcover-wood':
+      next.paint['fill-color'] = '#c7ead4';
+      next.paint['fill-opacity'] = 0.5;
+      break;
+    case 'dark-landcover-grass':
+      next.paint['fill-color'] = '#d9f0d2';
+      next.paint['fill-opacity'] = 0.42;
+      break;
+    case 'dark-park':
+      next.paint['fill-color'] = '#c8ead0';
+      next.paint['fill-opacity'] = 0.58;
+      break;
+    case 'dark-landuse':
+      next.paint['fill-color'] = [
+        'match',
+        ['get', 'class'],
+        'industrial',
+        '#e5e7eb',
+        'commercial',
+        '#f3e8ff',
+        'school',
+        '#dbeafe',
+        'hospital',
+        '#ffe4e6',
+        '#edf2f7'
+      ];
+      next.paint['fill-opacity'] = ['interpolate', ['linear'], ['zoom'], 6, 0.2, 13, 0.55];
+      break;
+    case 'dark-water':
+      next.paint['fill-color'] = '#b9ddf2';
+      break;
+    case 'dark-waterway':
+      next.paint['line-color'] = '#60a5ca';
+      next.paint['line-opacity'] = 0.78;
+      break;
+    case HILLSHADE_LAYER:
+      next.paint['hillshade-highlight-color'] = ['#ffffff', '#f8fafc', '#dbeafe', '#bfdbfe'];
+      next.paint['hillshade-shadow-color'] = ['#94a3b8', '#cbd5e1', '#d1d5db', '#e5e7eb'];
+      next.paint['hillshade-exaggeration'] = 0.44;
+      break;
+    case 'dark-boundary':
+      next.paint['line-color'] = '#64748b';
+      next.paint['line-opacity'] = ['interpolate', ['linear'], ['zoom'], 2, 0.42, 6, 0.82];
+      break;
+    case 'dark-road-casing':
+      next.paint['line-color'] = '#ffffff';
+      next.paint['line-opacity'] = 0.72;
+      break;
+    case 'dark-road':
+      next.paint['line-color'] = [
+        'match',
+        ['get', 'class'],
+        'motorway',
+        '#d97706',
+        'trunk',
+        '#f59e0b',
+        'primary',
+        '#eab308',
+        'secondary',
+        '#94a3b8',
+        'tertiary',
+        '#a8b5c7',
+        '#cbd5e1'
+      ];
+      next.paint['line-opacity'] = ['interpolate', ['linear'], ['zoom'], 4, 0.48, 12, 0.88];
+      break;
+    case 'dark-rail':
+      next.paint['line-color'] = '#64748b';
+      next.paint['line-opacity'] = 0.54;
+      break;
+    case 'dark-place-labels':
+      next.paint['text-color'] = '#0f172a';
+      next.paint['text-halo-color'] = '#ffffff';
+      next.paint['text-halo-width'] = 1.7;
+      break;
+    case CLUSTER_COUNT_LAYER:
+      next.paint['text-color'] = '#f8fafc';
+      next.paint['text-halo-color'] = '#0f172a';
+      break;
+    default:
+      return layer;
+  }
+  return next as maplibregl.LayerSpecification;
 }
 
 function defaultPitchForMode(mode: MapBaseMode): number {
@@ -800,6 +937,7 @@ export default function CanadaMap({
   plotMode,
   mapAction,
   baseMode,
+  themeMode,
   initialView,
   loading,
   onPositionedNodesRendered,
@@ -835,6 +973,7 @@ export default function CanadaMap({
   const pendingObserverBurstsRef = useRef<PublicObserverBurst[]>([]);
   const followTrafficRef = useRef(followTraffic);
   const followTrafficStateRef = useRef({ lastAt: 0, lastID: '' });
+  const themeModeRef = useRef<MapThemeMode>(themeMode);
   const pulseSchedulerTimerRef = useRef<number | null>(null);
   const observerSchedulerTimerRef = useRef<number | null>(null);
   const nodeActivityRef = useRef<Map<string, NodeActivity>>(new Map());
@@ -993,7 +1132,7 @@ export default function CanadaMap({
     if (startupView) initialViewRef.current = startupView;
     if (startupView) fitInitialNodesRef.current = true;
     setMapZoom(Number((startupView?.z ?? 3.35).toFixed(2)));
-    const initialStyle = mapStyleForMode(baseModeRef.current);
+    const initialStyle = mapStyleForMode(baseModeRef.current, themeModeRef.current);
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: initialStyle,
@@ -1075,7 +1214,7 @@ export default function CanadaMap({
       let baseWarning = '';
       if (baseModeRef.current === 'openfreemap') {
         try {
-          addOpenFreeMap3DBase(map);
+          addOpenFreeMap3DBase(map, themeModeRef.current);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           baseWarning = `OpenFreeMap base warning: ${message}`;
@@ -1166,8 +1305,9 @@ export default function CanadaMap({
   }, []);
 
   useEffect(() => {
-    if (baseModeRef.current === baseMode) return;
+    if (baseModeRef.current === baseMode && themeModeRef.current === themeMode) return;
     baseModeRef.current = baseMode;
+    themeModeRef.current = themeMode;
     const map = mapRef.current;
     if (!map) return;
 
@@ -1187,7 +1327,7 @@ export default function CanadaMap({
     clearClusterActivityGlowStates(map, clusterActivityGlowRef.current);
     stopClusterActivityGlowTimer(clusterActivityGlowTimerRef);
 
-    const nextStyle = mapStyleForMode(baseMode);
+    const nextStyle = mapStyleForMode(baseMode, themeMode);
     (window as any).__meshcoreMapStyle = nextStyle;
     map.setStyle(nextStyle);
     map.easeTo({
@@ -1195,7 +1335,7 @@ export default function CanadaMap({
       bearing: defaultBearingForMode(baseMode),
       duration: 500
     });
-  }, [baseMode]);
+  }, [baseMode, themeMode]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNodeLabelClock(Date.now()), NODE_LABEL_UPDATE_MS);
@@ -1333,6 +1473,7 @@ export default function CanadaMap({
       className={`map-wrap ${loading ? 'loading' : ''}`}
       data-map-zoom={mapZoom}
       data-map-base-mode={baseMode}
+      data-map-theme-mode={themeMode}
       data-map-center-lat={mapCenter.lat}
       data-map-center-lng={mapCenter.lng}
       data-node-ref-count={nodesRef.current.length}
@@ -1378,7 +1519,7 @@ export default function CanadaMap({
   );
 }
 
-function addOpenFreeMap3DBase(map: maplibregl.Map) {
+function addOpenFreeMap3DBase(map: maplibregl.Map, themeMode: MapThemeMode) {
   if (!map.getSource(OPENFREEMAP_SOURCE)) {
     map.addSource(OPENFREEMAP_SOURCE, {
       type: 'vector',
@@ -1407,8 +1548,8 @@ function addOpenFreeMap3DBase(map: maplibregl.Map) {
     source: HILLSHADE_SOURCE,
     paint: {
       'hillshade-method': 'multidirectional',
-      'hillshade-highlight-color': ['#f8fafc', '#d9f99d', '#99f6e4', '#bae6fd'],
-      'hillshade-shadow-color': ['#020617', '#0f172a', '#1e293b', '#334155'],
+      'hillshade-highlight-color': themeMode === 'light' ? ['#ffffff', '#f8fafc', '#dbeafe', '#bfdbfe'] : ['#f8fafc', '#d9f99d', '#99f6e4', '#bae6fd'],
+      'hillshade-shadow-color': themeMode === 'light' ? ['#94a3b8', '#cbd5e1', '#d1d5db', '#e5e7eb'] : ['#020617', '#0f172a', '#1e293b', '#334155'],
       'hillshade-illumination-direction': [270, 315, 0, 45],
       'hillshade-illumination-altitude': [24, 32, 36, 28]
     } as any
@@ -1427,13 +1568,13 @@ function addOpenFreeMap3DBase(map: maplibregl.Map) {
         ['linear'],
         ['coalesce', ['get', 'render_height'], 0],
         0,
-        '#1e293b',
+        themeMode === 'light' ? '#cbd5e1' : '#1e293b',
         80,
-        '#155e75',
+        themeMode === 'light' ? '#93c5fd' : '#155e75',
         200,
-        '#7c3aed',
+        themeMode === 'light' ? '#a78bfa' : '#7c3aed',
         420,
-        '#c4b5fd'
+        themeMode === 'light' ? '#f0abfc' : '#c4b5fd'
       ],
       'fill-extrusion-height': [
         'interpolate',
@@ -1459,12 +1600,12 @@ function addOpenFreeMap3DBase(map: maplibregl.Map) {
 
   map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
   map.setSky({
-    'sky-color': '#0f172a',
-    'horizon-color': '#2563eb',
-    'fog-color': '#020617',
+    'sky-color': themeMode === 'light' ? '#dbeafe' : '#0f172a',
+    'horizon-color': themeMode === 'light' ? '#93c5fd' : '#2563eb',
+    'fog-color': themeMode === 'light' ? '#eff6ff' : '#020617',
     'sky-horizon-blend': 0.45,
-    'horizon-fog-blend': 0.55,
-    'fog-ground-blend': 0.34
+    'horizon-fog-blend': themeMode === 'light' ? 0.28 : 0.55,
+    'fog-ground-blend': themeMode === 'light' ? 0.12 : 0.34
   });
 }
 

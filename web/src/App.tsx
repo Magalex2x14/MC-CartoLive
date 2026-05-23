@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layers, LocateFixed, Pause, Play, RadioTower, RotateCcw, Search, Share2, X } from 'lucide-react';
-import { fetchPublicState } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Check, Columns3, Eye, EyeOff, Layers, LocateFixed, Moon, Palette, Pause, Play, RadioTower, RotateCcw, Search, Share2, Sun, X } from 'lucide-react';
+import { fetchPublicHistory, fetchPublicHistorySummary, fetchPublicState } from './api';
 import { connectPublicSocket } from './ws';
 import {
   applyPublicEnvelope,
@@ -19,7 +19,29 @@ import LinkBar from './components/LinkBar';
 import PlotRoutesPanel, { type PlotMode, type PlotResult } from './components/PlotRoutesPanel';
 import SelectionDrawer from './components/SelectionDrawer';
 import StatusBar from './components/StatusBar';
-import { nextLiveEnvelopeDelayMs, takeDueLiveEnvelopes } from './livePacing';
+import VcrBar, { MiniLiveClock } from './components/VcrBar';
+import ChromePanel from './components/ChromePanel';
+import {
+  DEFAULT_CHROME_PANEL_ANCHORS,
+  INITIAL_CHROME_PANEL_VISIBILITY,
+  chromePanelVisible,
+  normalizePanelAnchor,
+  reduceChromeVisibility,
+  type ChromePanelAnchor,
+  type ChromePanelID,
+  type ChromeVisibilityState
+} from './components/panelChrome';
+import { liveEnvelopeDisplayAt, nextLiveEnvelopeDelayMs, sortLiveEnvelopes, takeDueLiveEnvelopes } from './livePacing';
+import {
+  historyEventsToLiveEnvelopes,
+  historyFetchWindowFromScrub,
+  nextVcrSpeed,
+  playbackDelayMs,
+  shouldApplyPlaybackGeneration,
+  VCR_SCOPE_OPTIONS,
+  type VcrMode,
+  type VcrSpeed
+} from './vcr';
 import {
   buildConnectivityGraph,
   directConnectivity,
@@ -36,7 +58,35 @@ import {
   type SelectionState
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
-import type { PublicActivity, PublicLiveEnvelope } from './types';
+import {
+  THEME_PALETTES,
+  applyDocumentTheme,
+  readStoredThemePreference,
+  themePaletteByID,
+  themeStyleVariables,
+  toggleThemeMode,
+  writeStoredThemePreference,
+  type ThemeMode,
+  type ThemePalette
+} from './theme';
+import type { PublicActivity, PublicHistorySummaryBucket, PublicLiveEnvelope } from './types';
+
+interface VcrUiState {
+  mode: VcrMode;
+  speed: VcrSpeed;
+  scopeMs: number;
+  missedCount: number;
+  scrubAt: number | null;
+  clock: number | null;
+  status: 'idle' | 'loading' | 'empty' | 'error' | 'lagged';
+  summary: PublicHistorySummaryBucket[];
+}
+
+const PANEL_MENU_ITEMS: readonly { id: ChromePanelID; label: string }[] = [
+  { id: 'search', label: 'Search' },
+  { id: 'legend', label: 'Legend' },
+  { id: 'hotRoutes', label: 'Busy Pathways' }
+] as const;
 
 export default function App() {
   const sharedViewRef = useRef(parseSharedView(window.location.search));
@@ -60,15 +110,252 @@ export default function App() {
     const shared = sharedViewRef.current;
     return shared ? { lat: shared.lat, lng: shared.lng, z: shared.z, pitch: shared.pitch, bearing: shared.bearing } : null;
   });
+  const initialThemeRef = useRef(readStoredThemePreference());
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialThemeRef.current.mode);
+  const [themePaletteID, setThemePaletteID] = useState(() => initialThemeRef.current.palette.id);
+  const [paletteMenuOpen, setPaletteMenuOpen] = useState(false);
+  const [panelsMenuOpen, setPanelsMenuOpen] = useState(false);
   const [initialLoadGateOpen, setInitialLoadGateOpen] = useState(true);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [liveClock, setLiveClock] = useState(() => Date.now());
   const [initialNodesReceived, setInitialNodesReceived] = useState(false);
   const [positionedNodesRendered, setPositionedNodesRendered] = useState(false);
   const [nodeLoadFailed, setNodeLoadFailed] = useState(false);
+  const [vcrOpen, setVcrOpen] = useState(false);
+  const [chromeVisibility, setChromeVisibility] = useState<ChromeVisibilityState>({
+    chromeHidden: false,
+    panels: { ...INITIAL_CHROME_PANEL_VISIBILITY }
+  });
+  const [panelAnchors, setPanelAnchors] = useState<Record<ChromePanelID, ChromePanelAnchor>>({ ...DEFAULT_CHROME_PANEL_ANCHORS });
+  const [vcr, setVcr] = useState<VcrUiState>({
+    mode: 'live',
+    speed: 1,
+    scopeMs: VCR_SCOPE_OPTIONS[0].value,
+    missedCount: 0,
+    scrubAt: null,
+    clock: null,
+    status: 'idle',
+    summary: []
+  });
   const actionTokenRef = useRef(0);
   const pendingMessagesRef = useRef<PublicLiveEnvelope[]>([]);
+  const vcrBufferedMessagesRef = useRef<PublicLiveEnvelope[]>([]);
+  const vcrModeRef = useRef<VcrMode>('live');
+  const vcrSpeedRef = useRef<VcrSpeed>(1);
+  const vcrGenerationRef = useRef(0);
+  const vcrReplayTimerRef = useRef<number | null>(null);
   const flushMessagesTimerRef = useRef<number | null>(null);
+  const selectedThemePalette = useMemo(() => themePaletteByID(themePaletteID), [themePaletteID]);
+  const appThemeStyle = useMemo(() => themeStyleVariables(selectedThemePalette, themeMode) as CSSProperties, [selectedThemePalette, themeMode]);
+
+  useEffect(() => {
+    vcrModeRef.current = vcr.mode;
+    vcrSpeedRef.current = vcr.speed;
+  }, [vcr.mode, vcr.speed]);
+
+  const clearPendingLiveFlush = useCallback(() => {
+    if (flushMessagesTimerRef.current !== null) {
+      window.clearTimeout(flushMessagesTimerRef.current);
+      flushMessagesTimerRef.current = null;
+    }
+  }, []);
+
+  const bufferVcrMessage = useCallback((message: PublicLiveEnvelope) => {
+    if (message.type !== 'event' || message.event !== 'routePulse') return;
+    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, message]).slice(-4000);
+    setVcr((current) => ({
+      ...current,
+      missedCount: vcrBufferedMessagesRef.current.length,
+      clock: current.clock ?? liveEnvelopeDisplayAt(message)
+    }));
+  }, []);
+
+  const movePendingLiveToVcrBuffer = useCallback(() => {
+    clearPendingLiveFlush();
+    if (pendingMessagesRef.current.length === 0) return;
+    const routedPending = pendingMessagesRef.current.filter((message) => message.type === 'event' && message.event === 'routePulse');
+    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, ...routedPending]).slice(-4000);
+    pendingMessagesRef.current = [];
+    setVcr((current) => ({
+      ...current,
+      missedCount: vcrBufferedMessagesRef.current.length,
+      clock: current.clock ?? liveEnvelopeDisplayAt(vcrBufferedMessagesRef.current[0])
+    }));
+  }, [clearPendingLiveFlush]);
+
+  const stopReplay = useCallback(() => {
+    vcrGenerationRef.current += 1;
+    if (vcrReplayTimerRef.current !== null) {
+      window.clearTimeout(vcrReplayTimerRef.current);
+      vcrReplayTimerRef.current = null;
+    }
+  }, []);
+
+  const refreshLiveSnapshot = useCallback(() => {
+    fetchPublicState()
+      .then((liveState) => {
+        if (vcrModeRef.current !== 'live') return;
+        setState(initialAppState(liveState));
+        if ((liveState.nodes?.length ?? 0) > 0) {
+          setInitialNodesReceived(true);
+          setNodeLoadFailed(false);
+        }
+      })
+      .catch(() => {
+        setSocketStatus('state-error');
+        if (!initialNodesReceived) setNodeLoadFailed(true);
+      });
+  }, [initialNodesReceived]);
+
+  const returnToLive = useCallback(() => {
+    stopReplay();
+    clearPendingLiveFlush();
+    pendingMessagesRef.current = [];
+    vcrBufferedMessagesRef.current = [];
+    setVcr((current) => ({ ...current, mode: 'live', missedCount: 0, scrubAt: null, clock: null, status: 'idle' }));
+    refreshLiveSnapshot();
+  }, [clearPendingLiveFlush, refreshLiveSnapshot, stopReplay]);
+
+  const pausePlayback = useCallback(() => {
+    const now = Date.now();
+    stopReplay();
+    if (vcrModeRef.current === 'live') {
+      movePendingLiveToVcrBuffer();
+    }
+    setVcr((current) => ({
+      ...current,
+      mode: 'paused',
+      scrubAt: current.scrubAt ?? current.clock ?? now,
+      clock: current.clock ?? now,
+      status: 'idle'
+    }));
+  }, [movePendingLiveToVcrBuffer, stopReplay]);
+
+  const playReplayEnvelopes = useCallback((messages: PublicLiveEnvelope[], generation: number, doneMode: 'live' | 'paused') => {
+    let index = 0;
+    const runNext = () => {
+      if (!shouldApplyPlaybackGeneration(vcrGenerationRef.current, generation)) return;
+      const message = messages[index];
+      if (!message) {
+        vcrReplayTimerRef.current = null;
+        if (doneMode === 'live') {
+          returnToLive();
+        } else {
+          setVcr((current) => ({
+            ...current,
+            mode: 'paused',
+            missedCount: vcrBufferedMessagesRef.current.length,
+            status: current.status === 'loading' ? 'idle' : current.status
+          }));
+        }
+        return;
+      }
+      setState((current) => applyPublicEnvelope(current, message));
+      const currentAt = replayEnvelopeClockAt(message);
+      setVcr((current) => ({ ...current, mode: 'replay', clock: currentAt, scrubAt: currentAt, status: 'idle' }));
+      index += 1;
+      const nextMessage = messages[index];
+      if (!nextMessage) {
+        vcrReplayTimerRef.current = window.setTimeout(runNext, 260);
+        return;
+      }
+      vcrReplayTimerRef.current = window.setTimeout(runNext, playbackDelayMs(currentAt, replayEnvelopeClockAt(nextMessage), vcrSpeedRef.current));
+    };
+    runNext();
+  }, [returnToLive]);
+
+  const replayMissed = useCallback(() => {
+    const messages = sortLiveEnvelopes(vcrBufferedMessagesRef.current);
+    if (messages.length === 0) {
+      setVcr((current) => ({ ...current, mode: 'paused', status: 'empty' }));
+      return;
+    }
+    stopReplay();
+    setPaused(false);
+    setClearToken((value) => value + 1);
+    vcrBufferedMessagesRef.current = [];
+    const generation = vcrGenerationRef.current + 1;
+    vcrGenerationRef.current = generation;
+    setVcr((current) => ({
+      ...current,
+      mode: 'replay',
+      missedCount: 0,
+      status: 'idle',
+      clock: liveEnvelopeDisplayAt(messages[0]),
+      scrubAt: liveEnvelopeDisplayAt(messages[0])
+    }));
+    playReplayEnvelopes(messages, generation, 'live');
+  }, [playReplayEnvelopes, stopReplay]);
+
+  const replayFromScrub = useCallback(() => {
+    const selected = vcr.scrubAt ?? vcr.clock ?? Math.max(liveClock, state.serverTime, Date.now());
+    const { from, to } = historyFetchWindowFromScrub(selected, Date.now());
+    stopReplay();
+    setPaused(false);
+    setClearToken((value) => value + 1);
+    const generation = vcrGenerationRef.current + 1;
+    vcrGenerationRef.current = generation;
+    setVcr((current) => ({ ...current, mode: 'replay', status: 'loading', clock: selected, scrubAt: selected }));
+    fetchPublicHistory({ from, to, limit: 2000 })
+      .then((history) => {
+        if (!shouldApplyPlaybackGeneration(vcrGenerationRef.current, generation)) return;
+        const routedEvents = history.events.filter((event) => event.type === 'routePulse');
+        if (routedEvents.length === 0) {
+          setVcr((current) => ({ ...current, mode: 'paused', status: 'empty', clock: selected, scrubAt: selected }));
+          return;
+        }
+        playReplayEnvelopes(historyEventsToLiveEnvelopes(routedEvents, Date.now()), generation, 'paused');
+      })
+      .catch(() => {
+        if (!shouldApplyPlaybackGeneration(vcrGenerationRef.current, generation)) return;
+        setVcr((current) => ({ ...current, mode: 'paused', status: 'error', clock: selected, scrubAt: selected }));
+      });
+  }, [liveClock, playReplayEnvelopes, state.serverTime, stopReplay, vcr.clock, vcr.scrubAt]);
+
+  const scrubTimeline = useCallback((timestamp: number) => {
+    stopReplay();
+    if (vcrModeRef.current === 'live') {
+      movePendingLiveToVcrBuffer();
+    }
+    setPaused(false);
+    setVcr((current) => ({ ...current, mode: 'paused', scrubAt: timestamp, clock: timestamp, status: 'idle' }));
+  }, [movePendingLiveToVcrBuffer, stopReplay]);
+
+  const rewindFifteenMinutes = useCallback(() => {
+    const now = Math.max(liveClock, state.serverTime, Date.now());
+    scrubTimeline(Math.max(0, (vcr.scrubAt ?? vcr.clock ?? now) - 15 * 60_000));
+  }, [liveClock, scrubTimeline, state.serverTime, vcr.clock, vcr.scrubAt]);
+
+  const cycleVcrSpeed = useCallback(() => {
+    setVcr((current) => ({ ...current, speed: nextVcrSpeed(current.speed) }));
+  }, []);
+
+  const setVcrScope = useCallback((scopeMs: number) => {
+    setVcr((current) => ({ ...current, scopeMs }));
+  }, []);
+
+  const toggleChromeVisibility = useCallback(() => {
+    setChromeVisibility((current) => reduceChromeVisibility(current, { type: current.chromeHidden ? 'show-all' : 'hide-all' }));
+  }, []);
+
+  const hideChromePanel = useCallback((panel: ChromePanelID) => {
+    setChromeVisibility((current) => reduceChromeVisibility(current, { type: 'hide-panel', panel }));
+  }, []);
+
+  const toggleChromePanel = useCallback((panel: ChromePanelID) => {
+    setChromeVisibility((current) => reduceChromeVisibility(current, { type: chromePanelVisible(current, panel) ? 'hide-panel' : 'show-panel', panel }));
+  }, []);
+
+  const setChromePanelAnchor = useCallback((panel: ChromePanelID, anchor: ChromePanelAnchor) => {
+    setPanelAnchors((current) => ({ ...current, [panel]: normalizePanelAnchor(panel, anchor) }));
+    setChromeVisibility((current) => reduceChromeVisibility(current, { type: 'show-panel', panel }));
+  }, []);
+
+  useEffect(() => {
+    const preference = { mode: themeMode, palette: selectedThemePalette };
+    applyDocumentTheme(preference);
+    writeStoredThemePreference(preference);
+  }, [selectedThemePalette, themeMode]);
 
   useEffect(() => {
     if (initialNodesReceived) return;
@@ -111,7 +398,7 @@ export default function App() {
     };
     const flushMessages = () => {
       flushMessagesTimerRef.current = null;
-      if (!active || pendingMessagesRef.current.length === 0) return;
+      if (!active || vcrModeRef.current !== 'live' || pendingMessagesRef.current.length === 0) return;
       const { due, pending } = takeDueLiveEnvelopes(pendingMessagesRef.current, Date.now());
       pendingMessagesRef.current = pending;
       if (due.length > 0) {
@@ -121,12 +408,18 @@ export default function App() {
     };
     const enqueueMessage = (message: PublicLiveEnvelope) => {
       if (message.type !== 'event') return;
+      if (vcrModeRef.current !== 'live') {
+        bufferVcrMessage(message);
+        return;
+      }
       pendingMessagesRef.current.push(message);
       scheduleMessagesFlush();
     };
     const refreshState = () => {
+      if (vcrModeRef.current !== 'live') return;
       fetchPublicState().then((liveState) => {
         if (!active) return;
+        if (vcrModeRef.current !== 'live') return;
         setState(initialAppState(liveState));
         if ((liveState.nodes?.length ?? 0) > 0) {
           setInitialNodesReceived(true);
@@ -145,6 +438,10 @@ export default function App() {
           window.clearTimeout(flushMessagesTimerRef.current);
           flushMessagesTimerRef.current = null;
         }
+        if (vcrModeRef.current !== 'live') {
+          setVcr((current) => ({ ...current, status: 'lagged' }));
+          return;
+        }
         refreshState();
         return;
       }
@@ -160,17 +457,19 @@ export default function App() {
       pendingMessagesRef.current = [];
       socket.close();
     };
-  }, []);
+  }, [bufferVcrMessage]);
 
   useEffect(() => {
     let active = true;
     let inFlight = false;
     const refresh = () => {
+      if (vcrModeRef.current !== 'live') return;
       if (inFlight) return;
       inFlight = true;
       fetchPublicState()
         .then((liveState) => {
           if (!active) return;
+          if (vcrModeRef.current !== 'live') return;
           setState(initialAppState(liveState));
           if ((liveState.nodes?.length ?? 0) > 0) {
             setInitialNodesReceived(true);
@@ -213,6 +512,30 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const loadSummary = () => {
+      const to = Date.now();
+      const from = Math.max(0, to - vcr.scopeMs);
+      const bucketMs = Math.max(60_000, Math.ceil(vcr.scopeMs / 96));
+      fetchPublicHistorySummary({ from, to, bucketMs })
+        .then((summary) => {
+          if (!active) return;
+          setVcr((current) => ({ ...current, summary: summary.buckets }));
+        })
+        .catch(() => {
+          if (!active) return;
+          setVcr((current) => ({ ...current, summary: [] }));
+        });
+    };
+    loadSummary();
+    const interval = window.setInterval(loadSummary, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [vcr.scopeMs]);
+
   const visibleNodes = useMemo(() => filterNodes(state.nodes, query), [state.nodes, query]);
   const visibleNodeIDs = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
   const visibleRoutes = useMemo(() => filterRoutes(state.routes, visibleNodeIDs, query), [state.routes, visibleNodeIDs, query]);
@@ -247,6 +570,9 @@ export default function App() {
   const routeActivityByID = useMemo(() => summarizeRouteActivity(state.routeTraces, activityClock), [state.routeTraces, activityClock]);
   const coverage = useMemo(() => liveCoverageStats(state.activity, activityClock), [state.activity, activityClock]);
   const latestPacketActivity = useMemo(() => state.activity.find(isPacketActivity) ?? null, [state.activity]);
+  const vcrPlaybackActive = vcr.mode !== 'live';
+  const vcrTimelineNow = Math.max(liveClock, state.serverTime, vcr.clock ?? 0);
+  const chromeHidden = chromeVisibility.chromeHidden;
   const loadingPositionedNodes = initialLoadGateOpen && (!initialNodesReceived || !positionedNodesRendered);
   const handlePositionedNodesRendered = useCallback(() => setPositionedNodesRendered(true), []);
   const handleViewChange = useCallback((view: MapViewState) => setMapView(view), []);
@@ -312,6 +638,17 @@ export default function App() {
     setPlotAreaFirstPoint(null);
     setPlotResult(null);
   }, []);
+
+  const openVcr = useCallback(() => {
+    clearPlotRoutes();
+    setVcrOpen(true);
+  }, [clearPlotRoutes]);
+
+  const closeVcr = useCallback(() => {
+    clearPlotRoutes();
+    returnToLive();
+    setVcrOpen(false);
+  }, [clearPlotRoutes, returnToLive]);
 
   const handlePlotNodePick = useCallback((nodeID: string) => {
     if (plotMode !== 'node') return;
@@ -389,14 +726,20 @@ export default function App() {
   }, [mapView, query, selectedNodeID, selectedRouteID]);
 
   return (
-    <div className="app-shell public-dashboard">
+    <div
+      className="app-shell public-dashboard"
+      data-theme-mode={themeMode}
+      data-theme-palette={selectedThemePalette.id}
+      data-vcr-layout={vcrOpen ? 'open' : 'closed'}
+      style={appThemeStyle}
+    >
       <CanadaMap
         nodes={visibleNodes}
         routes={visibleRoutes}
         pulses={state.pulses}
         observerBursts={state.observerBursts}
-        paused={paused}
-        followTraffic={followTraffic}
+        paused={paused || vcr.mode === 'paused'}
+        followTraffic={followTraffic && !vcrPlaybackActive}
         clearToken={clearToken}
         selectedNodeID={selectedNodeID}
         selectedRouteID={selectedRouteID}
@@ -405,6 +748,7 @@ export default function App() {
         plotMode={plotMode}
         mapAction={mapAction}
         baseMode={mapBaseMode}
+        themeMode={themeMode}
         initialView={sharedViewRef.current}
         loading={loadingPositionedNodes}
         onPositionedNodesRendered={handlePositionedNodesRendered}
@@ -416,17 +760,115 @@ export default function App() {
       />
       {loadingPositionedNodes && <NodeLoadingToast failed={nodeLoadFailed} drawing={initialNodesReceived} />}
       <LinkBar />
-      <StatusBar
-        stats={state.stats}
-        socketStatus={socketStatus}
-        nodeCount={visibleNodes.length}
-        routeCount={visibleRoutes.length}
-        coverage={coverage}
-        latestPayloadTypeName={latestPacketActivity?.payloadTypeName ?? null}
-        latestPacketID={latestPacketActivity?.id ?? null}
-      />
+      {!chromeHidden && (
+        <StatusBar
+          stats={state.stats}
+          socketStatus={socketStatus}
+          nodeCount={visibleNodes.length}
+          routeCount={visibleRoutes.length}
+          coverage={coverage}
+          latestPayloadTypeName={latestPacketActivity?.payloadTypeName ?? null}
+          latestPacketID={latestPacketActivity?.id ?? null}
+        />
+      )}
 
       <div className="top-actions">
+        <button
+          className={`icon-button hide-all-toggle ${chromeHidden ? 'active' : ''}`}
+          type="button"
+          aria-pressed={chromeHidden}
+          title={chromeHidden ? 'Show all map UI panels' : 'Hide map UI panels'}
+          onClick={toggleChromeVisibility}
+        >
+          {chromeHidden ? <Eye size={18} /> : <EyeOff size={18} />}
+        </button>
+        <div className="top-action-menu">
+          <button
+            className={`icon-button ${panelsMenuOpen ? 'active' : ''}`}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={panelsMenuOpen}
+            title="Show or hide map panels"
+            onClick={() => {
+              setPanelsMenuOpen((value) => !value);
+              setPaletteMenuOpen(false);
+            }}
+          >
+            <Columns3 size={18} />
+          </button>
+          {panelsMenuOpen && (
+            <div className="top-popover panel-picker" role="menu" aria-label="Map panels">
+              {PANEL_MENU_ITEMS.map((item) => {
+                const visible = chromePanelVisible(chromeVisibility, item.id);
+                return (
+                  <button
+                    key={item.id}
+                    className={visible ? 'active' : ''}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={visible}
+                    onClick={() => toggleChromePanel(item.id)}
+                  >
+                    <span>{item.label}</span>
+                    {visible && <Check size={14} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <button
+          className={`icon-button theme-mode-toggle ${themeMode}`}
+          type="button"
+          aria-pressed={themeMode === 'light'}
+          title={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={() => setThemeMode((value) => toggleThemeMode(value))}
+        >
+          {themeMode === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
+        <div className="top-action-menu">
+          <button
+            className={`icon-button palette-toggle ${paletteMenuOpen ? 'active' : ''}`}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={paletteMenuOpen}
+            title={`Palette: ${selectedThemePalette.name}`}
+            onClick={() => {
+              setPaletteMenuOpen((value) => !value);
+              setPanelsMenuOpen(false);
+            }}
+          >
+            <Palette size={18} />
+          </button>
+          {paletteMenuOpen && (
+            <div className="top-popover palette-picker" role="menu" aria-label="Color palettes">
+              {THEME_PALETTES.map((palette) => {
+                const selected = palette.id === selectedThemePalette.id;
+                return (
+                  <button
+                    key={palette.id}
+                    className={selected ? 'active' : ''}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onClick={() => {
+                      setThemePaletteID(palette.id);
+                      setPaletteMenuOpen(false);
+                    }}
+                  >
+                    <span className="palette-swatch" style={paletteSwatchStyle(palette)}>
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span>{palette.name}</span>
+                    {selected && <Check size={14} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <button className="icon-button" type="button" title={paused ? 'Resume packet flow' : 'Pause packet flow'} onClick={() => setPaused((value) => !value)}>
           {paused ? <Play size={18} /> : <Pause size={18} />}
         </button>
@@ -454,41 +896,107 @@ export default function App() {
       </div>
       {shareToast && <div className="share-toast" role="status">{shareToast}</div>}
 
-      <button
-        className={`follow-traffic-button ${followTraffic ? 'active' : ''}`}
-        type="button"
-        aria-pressed={followTraffic}
-        title={followTraffic ? 'Stop following live packet movement' : 'Follow live packet movement'}
-        onClick={() => setFollowTraffic((value) => !value)}
-      >
-        <RadioTower size={15} />
-        <span>Live Follow</span>
-      </button>
-      <PlotRoutesPanel
-        mode={plotMode}
-        firstNode={plotFirstNode}
-        areaPointCount={plotAreaFirstPoint ? 1 : 0}
-        result={plotResult}
-        copyStatus={pathCopyToast}
-        onStartNodePlot={startNodePlot}
-        onStartAreaPlot={startAreaPlot}
-        onCancel={clearPlotRoutes}
-        onCopyPath={copyMeshcorePath}
-        onSelectRoute={selectRoute}
-      />
+      {!vcrOpen && (
+        <>
+          {!chromeHidden && (
+            <div className="bottom-action-dock" aria-label="Map playback and route controls">
+              <PlotRoutesPanel
+                mode={plotMode}
+                firstNode={plotFirstNode}
+                areaPointCount={plotAreaFirstPoint ? 1 : 0}
+                result={plotResult}
+                copyStatus={pathCopyToast}
+                onStartNodePlot={startNodePlot}
+                onStartAreaPlot={startAreaPlot}
+                onCancel={clearPlotRoutes}
+                onCopyPath={copyMeshcorePath}
+                onSelectRoute={selectRoute}
+              />
+              <button
+                className={`follow-traffic-button ${followTraffic && !vcrPlaybackActive ? 'active' : ''}`}
+                type="button"
+                aria-pressed={followTraffic && !vcrPlaybackActive}
+                disabled={vcrPlaybackActive}
+                title={vcrPlaybackActive ? 'Live Follow resumes when VCR returns to Live' : followTraffic ? 'Stop following live packet movement' : 'Follow live packet movement'}
+                onClick={() => setFollowTraffic((value) => !value)}
+              >
+                <RadioTower size={15} />
+                <span>Live Follow</span>
+              </button>
+              <button className="dock-control-button vcr-open-button" type="button" title="Open VCR playback controls" onClick={openVcr}>
+                <RotateCcw size={15} />
+                <span>VCR</span>
+              </button>
+            </div>
+          )}
+          <MiniLiveClock timestamp={liveClock} onOpen={openVcr} />
+        </>
+      )}
+      {vcrOpen && (
+        <VcrBar
+          mode={vcr.mode}
+          speed={vcr.speed}
+          scopeMs={vcr.scopeMs}
+          missedCount={vcr.missedCount}
+          timelineNow={vcrTimelineNow}
+          clock={vcr.clock}
+          scrubAt={vcr.scrubAt}
+          status={vcr.status}
+          summary={vcr.summary}
+          onLive={returnToLive}
+          onPause={pausePlayback}
+          onReplayMissed={replayMissed}
+          onRewind={rewindFifteenMinutes}
+          onSpeed={cycleVcrSpeed}
+          onScope={setVcrScope}
+          onScrub={scrubTimeline}
+          onPlayFromScrub={replayFromScrub}
+          onClose={closeVcr}
+        />
+      )}
 
-      <section className="search-panel">
-        <Search size={16} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search nodes, roles, regions" />
-        {query && (
-          <button type="button" onClick={() => setQuery('')} aria-label="Clear search">
-            <X size={15} />
-          </button>
-        )}
-      </section>
-
-      <Legend />
-      <HotRoutes routes={hotRoutes} selectedRouteID={selectedRouteID} routeActivityByID={routeActivityByID} onSelect={selectRoute} />
+      {!chromeHidden && (
+        <>
+          <ChromePanel
+            panel="search"
+            title="Search"
+            anchor={panelAnchors.search}
+            hidden={!chromeVisibility.panels.search}
+            onAnchorChange={setChromePanelAnchor}
+            onHide={hideChromePanel}
+          >
+            <section className="search-panel">
+              <Search size={16} />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search nodes, roles, regions" />
+              {query && (
+                <button type="button" onClick={() => setQuery('')} aria-label="Clear search">
+                  <X size={15} />
+                </button>
+              )}
+            </section>
+          </ChromePanel>
+          <ChromePanel
+            panel="legend"
+            title="Legend"
+            anchor={panelAnchors.legend}
+            hidden={!chromeVisibility.panels.legend}
+            onAnchorChange={setChromePanelAnchor}
+            onHide={hideChromePanel}
+          >
+            <Legend />
+          </ChromePanel>
+          <ChromePanel
+            panel="hotRoutes"
+            title="Busy Pathways"
+            anchor={panelAnchors.hotRoutes}
+            hidden={!chromeVisibility.panels.hotRoutes}
+            onAnchorChange={setChromePanelAnchor}
+            onHide={hideChromePanel}
+          >
+            <HotRoutes routes={hotRoutes} selectedRouteID={selectedRouteID} routeActivityByID={routeActivityByID} onSelect={selectRoute} />
+          </ChromePanel>
+        </>
+      )}
       <SelectionDrawer
         node={selectedNode}
         route={selectedRoute}
@@ -544,6 +1052,21 @@ async function copyTextToClipboard(text: string): Promise<void> {
 
 function isPacketActivity(item: PublicActivity): boolean {
   return item.kind === 'packet' || item.kind === 'route';
+}
+
+function replayEnvelopeClockAt(message: PublicLiveEnvelope): number {
+  if (message.type === 'event' && (message.event === 'routePulse' || message.event === 'activity')) {
+    return message.data.heardAt;
+  }
+  return liveEnvelopeDisplayAt(message);
+}
+
+function paletteSwatchStyle(palette: ThemePalette): CSSProperties {
+  return {
+    '--swatch-primary': palette.vars['--palette-primary'],
+    '--swatch-secondary': palette.vars['--palette-secondary'],
+    '--swatch-surface': palette.vars['--palette-bg-raised']
+  } as CSSProperties;
 }
 
 function NodeLoadingToast({ failed, drawing }: { failed: boolean; drawing: boolean }) {

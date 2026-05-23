@@ -14,7 +14,8 @@ Keep these out of git, logs, issues, screenshots, and public artifacts:
 
 ## Public Outputs
 
-Public endpoints should expose only sanitized live-map data needed for display.
+Public endpoints should expose only sanitized live-map data needed for display,
+including the public 24h VCR history feed.
 They must not expose:
 
 - full public keys
@@ -52,6 +53,14 @@ unresolved observations do not create guessed public routes.
 
 When an observation cannot safely draw a route but the observer has a public
 location, the frontend can show observer-only live activity instead.
+
+## Replay History
+
+The public VCR history endpoints replay only sanitized routed `routePulse`
+shapes already used by the live map. They must stay inside the same
+privacy boundary as `/api/v1/public/state` and `/ws/public`: no raw packet
+hashes, raw payloads, full public keys, path hex, summaries, or resolver debug
+reasons.
 
 ## Tests
 

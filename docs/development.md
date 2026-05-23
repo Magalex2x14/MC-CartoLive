@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v1.4.0 route-copy, phonebook, and route performance checks:
+For v2.1.0 VCR, route-copy, phonebook, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -143,6 +143,18 @@ For v1.4.0 route-copy, phonebook, and route performance checks:
   last-seen text, and idle routes stay subdued until a packet comet uses them.
 - Confirm Live Follow smoothly follows fresh packet movement and can be toggled
   off without leaving the map in a forced camera state.
+- Confirm the VCR is hidden on first load, the live pulse clock appears bottom
+  right, and the bottom-left action dock opens the slim VCR without overlapping
+  map controls.
+- Pause the VCR, wait for public packets, confirm the missed counter increases,
+  replay missed packets, and confirm comets/observer bursts animate through the
+  same live-map paths.
+- Scrub the VCR timeline in the last 24h, start replay from that point, and
+  confirm Live Follow stays disabled until returning to Live.
+- Confirm Search and compact Legend open top-left without overlap, Busy
+  Pathways is hidden by default, and the Panels menu restores each panel.
+- Switch dark/light mode and several palettes; verify links, Legend, VCR, and
+  map controls remain readable.
 - Click Plot routes, choose two node endpoints, and confirm the shortest public
   route path glows with a closeable route toast.
 - Switch to map-square mode, click two map corners, and confirm all public

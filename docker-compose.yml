@@ -1,6 +1,11 @@
 services:
   meshcore-live-map:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_BUILD_NUMBER: ${VITE_BUILD_NUMBER:-}
+        VITE_GIT_SHA: ${VITE_GIT_SHA:-}
+        VITE_BUILD_TIME: ${VITE_BUILD_TIME:-}
     container_name: meshcore-canada-live-map
     ports:
       - "39476:8080"

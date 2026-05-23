@@ -37,7 +37,6 @@ Real public map data from the local production container:
 - Keeps route lines passive on the map so dense RF paths do not steal clicks from nodes.
 - Optimizes dense route rendering for slower computers by avoiding unnecessary full route redraws and rendering live route glow only for active routes.
 - Paces live websocket bursts so packet counters, observer bursts, and routed comets keep moving smoothly instead of arriving as one visual clump.
-- Adds PacketTV, a compact floating chase-camera panel that follows long public routed packets without moving the main map.
 - Adds a searchable reachable-node phonebook that defaults to useful shortest-path routes first, can filter by distance, supports best/shortest/busiest/nearest/recent sorting, highlights a selected multi-hop path, and can copy MeshCore 3-byte route prefixes.
 - Adds a Plot routes control for choosing two node endpoints or two map corners and highlighting matching public RF routes.
 - Shows decoded public chatter history for the selected node when sanitized message text is available in the live window.

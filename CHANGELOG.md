@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Reduced live-map node source churn by avoiding full node GeoJSON rebuilds for volatile label-clock and packet-counter updates.
+- Temporarily removed PacketTV from the public UI while live-map performance and interaction polish are prioritized.
+
 ## 1.4.0
 
 - Unified the map detail zoom gate so routes, route payload glow, packet canvas effects, nodes, observer icons, observer labels, and message bubbles enter and exit together.

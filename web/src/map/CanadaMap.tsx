@@ -18,6 +18,7 @@ import {
   upsertClusterActivityGlow
 } from './clusterActivity';
 import { nodeFocusFromRoutes, type NodeFocus } from './nodeFocus';
+import { nodeSourceSignature } from './nodeSource';
 import { PacketAnimator } from './packetAnimator';
 import {
   compactNodeLabel,
@@ -844,6 +845,7 @@ export default function CanadaMap({
   const routePayloadGlowTimerRef = useRef<number | null>(null);
   const clusterActivityGlowRef = useRef<Map<string, ClusterActivityGlow>>(new Map());
   const clusterActivityGlowTimerRef = useRef<number | null>(null);
+  const nodeSourceSignatureRef = useRef('');
   const mapVisualModeRef = useRef<MapVisualMode>(visualModeForZoom(initialView?.z ?? 3.35));
   const nodeLabelFrameRef = useRef<number | null>(null);
   const messageBubbleCleanupTimersRef = useRef<Map<string, number>>(new Map());
@@ -1107,7 +1109,7 @@ export default function CanadaMap({
           bearing: initialViewRef.current.bearing ?? defaultBearingForMode(baseModeRef.current)
         });
       }
-      setSourceData(map, NODE_SOURCE, nodesToGeoJSON(nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current));
+      updateNodeRendering(map, nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current, nodeSourceSignatureRef, true);
       updateRouteRendering(
         map,
         routesRef.current,
@@ -1169,6 +1171,7 @@ export default function CanadaMap({
     if (!map) return;
 
     loadedRef.current = false;
+    nodeSourceSignatureRef.current = '';
     routeSourceSignatureRef.current = '';
     routeColorSignatureRef.current = '';
     setMapInitError('');
@@ -1216,7 +1219,7 @@ export default function CanadaMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (loadedRef.current) setSourceData(map, NODE_SOURCE, nodesToGeoJSON(nodes, nodeFocus, nodeLabelClock, nodeMeshActivityAtRef.current));
+    if (loadedRef.current) updateNodeRendering(map, nodes, nodeFocus, nodeLabelClock, nodeMeshActivityAtRef.current, nodeSourceSignatureRef);
     if (isClusterMode(map)) {
       setScreenNodeLabels([]);
       stopNodeActivityTimer(nodeActivityTimerRef);
@@ -2509,15 +2512,24 @@ function nodeFeatureProperties(
     focused: selected || neighbor || path,
     dimmed: focusActive && !selected && !neighbor && !path,
     neighborDistanceKm: focus.neighbourDistanceKmByNodeID.get(node.id) ?? null,
-    recentActive: recentNodeActivity(node.id, labelClock, meshActivityAtByNodeID),
     observer: node.isObserver === true,
     staleLevel: nodeStaleLevel(node, labelClock, meshActivityAt)
   };
 }
 
-function recentNodeActivity(nodeID: string, now: number, meshActivityAtByNodeID: Map<string, number>): boolean {
-  const activityAt = meshActivityAtByNodeID.get(nodeID);
-  return Number.isFinite(activityAt) && activityAt !== undefined && now - activityAt <= NODE_ACTIVE_LABEL_VISIBLE_MS;
+function updateNodeRendering(
+  map: maplibregl.Map,
+  nodes: PublicNode[],
+  focus: NodeFocus,
+  labelClock: number,
+  meshActivityAtByNodeID: Map<string, number>,
+  signatureRef: MutableRefObject<string>,
+  force = false
+) {
+  const nextSignature = nodeSourceSignature(nodes, focus, labelClock, meshActivityAtByNodeID);
+  if (!force && nextSignature === signatureRef.current) return;
+  signatureRef.current = nextSignature;
+  setSourceData(map, NODE_SOURCE, nodesToGeoJSON(nodes, focus, labelClock, meshActivityAtByNodeID));
 }
 
 function updateRouteRendering(

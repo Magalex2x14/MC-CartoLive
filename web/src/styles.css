@@ -299,8 +299,6 @@ button {
 .status-bar,
 .top-actions,
 .follow-traffic-button,
-.packet-tv-button,
-.packet-tv-panel,
 .plot-routes-panel,
 .search-panel,
 .legend-panel,
@@ -719,43 +717,6 @@ button {
     inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
-.packet-tv-button {
-  left: 118px;
-  bottom: 18px;
-  z-index: 7;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 31px;
-  padding: 0 10px;
-  color: #e0f2fe;
-  background:
-    linear-gradient(135deg, rgba(8, 47, 73, 0.94), rgba(13, 25, 43, 0.86)),
-    radial-gradient(circle at 22% 18%, rgba(56, 189, 248, 0.22), transparent 42%);
-  border: 1px solid rgba(125, 211, 252, 0.32);
-  border-radius: 7px;
-  box-shadow:
-    0 16px 36px rgba(0, 0, 0, 0.36),
-    0 0 18px rgba(56, 189, 248, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 850;
-  line-height: 1;
-  white-space: nowrap;
-  transition: border-color 160ms ease, box-shadow 160ms ease, filter 160ms ease, transform 160ms ease;
-}
-
-.packet-tv-button:hover,
-.packet-tv-button:focus-visible,
-.packet-tv-button.active {
-  color: #f8fafc;
-  border-color: rgba(125, 211, 252, 0.68);
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-  outline: none;
-}
-
 .icon-button.map-base-toggle {
   color: #dffbff;
 }
@@ -764,106 +725,6 @@ button {
   color: #ffffff;
   border-color: rgba(34, 211, 238, 0.66);
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.38), 0 0 24px rgba(34, 211, 238, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.packet-tv-panel {
-  left: 10px;
-  bottom: 96px;
-  z-index: 8;
-  width: min(430px, calc(100vw - 20px));
-  overflow: hidden;
-  color: #e6f7ff;
-  background: linear-gradient(135deg, rgba(3, 9, 18, 0.96), rgba(7, 20, 34, 0.92));
-  border: 1px solid rgba(125, 211, 252, 0.34);
-  border-radius: 8px;
-  box-shadow:
-    0 24px 62px rgba(0, 0, 0, 0.56),
-    0 0 30px rgba(56, 189, 248, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px) saturate(1.18);
-}
-
-.packet-tv-panel header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 34px;
-  padding: 0 8px 0 10px;
-  border-bottom: 1px solid rgba(125, 211, 252, 0.12);
-}
-
-.packet-tv-title,
-.packet-tv-panel header button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.packet-tv-title {
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.packet-tv-panel header button {
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  color: #dbeafe;
-  background: rgba(15, 23, 42, 0.62);
-  border: 1px solid rgba(125, 211, 252, 0.22);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.packet-tv-panel canvas {
-  display: block;
-  width: 100%;
-  aspect-ratio: 2 / 1;
-  background: #08111d;
-}
-
-.packet-tv-meta {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 10px 10px;
-  font-size: 11px;
-}
-
-.packet-tv-meta span,
-.packet-tv-meta strong,
-.packet-tv-meta em {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.packet-tv-meta span:first-child {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  color: #cffafe;
-}
-
-.packet-tv-meta img {
-  width: 14px;
-  height: 14px;
-}
-
-.packet-tv-meta strong {
-  color: #f8fafc;
-}
-
-.packet-tv-meta em {
-  color: #bae6fd;
-  font-style: normal;
-}
-
-.packet-tv-empty {
-  grid-column: 1 / -1;
-  color: #9fb7d0;
 }
 
 .plot-routes-panel {
@@ -1105,8 +966,6 @@ button {
 .link-bar,
 .status-pill,
 .follow-traffic-button,
-.packet-tv-button,
-.packet-tv-panel,
 .plot-routes-panel,
 .search-panel,
 .legend-panel,
@@ -2535,30 +2394,6 @@ button {
     min-height: 30px;
     padding: 0 9px;
     font-size: 10px;
-  }
-
-  .packet-tv-button {
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-    left: 111px;
-    min-height: 30px;
-    padding: 0 9px;
-    font-size: 10px;
-  }
-
-  .packet-tv-panel {
-    left: 10px;
-    right: 10px;
-    bottom: calc(47px + env(safe-area-inset-bottom, 0px));
-    width: auto;
-  }
-
-  .packet-tv-panel canvas {
-    max-height: 160px;
-  }
-
-  .packet-tv-meta {
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 5px 8px;
   }
 
   .plot-routes-panel {

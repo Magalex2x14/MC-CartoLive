@@ -100,7 +100,7 @@ project bar. Docker and CI builds also pick up `GITHUB_SHA` when present.
 ## Mobile UI
 
 The mobile layout keeps the map, route motion, packet comets, Live Follow,
-PacketTV, and route-copy tools as the primary experience. Secondary panels,
+and route-copy tools as the primary experience. Secondary panels,
 status toasts, the legend, and busy-path lists are hidden by default at small
 viewport widths.
 
@@ -141,8 +141,8 @@ For v1.4.0 route-copy, phonebook, and route performance checks:
 - At zoom 7.08 and above, confirm nodes and routes appear together, ordinary
   node labels appear only on hover/details, observer labels persist without
   last-seen text, and idle routes stay subdued until a packet comet uses them.
-- Open PacketTV and confirm it shows long live routed packets with endpoint
-  labels, hop count, distance, and packet color without moving the main map.
+- Confirm Live Follow smoothly follows fresh packet movement and can be toggled
+  off without leaving the map in a forced camera state.
 - Click Plot routes, choose two node endpoints, and confirm the shortest public
   route path glows with a closeable route toast.
 - Switch to map-square mode, click two map corners, and confirm all public

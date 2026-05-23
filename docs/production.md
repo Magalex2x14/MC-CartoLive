@@ -105,9 +105,9 @@ docker compose up -d
 - The compose file mounts `./data` read/write and `./examples` read-only.
 - Container logs are rotated by Docker Compose to avoid unbounded local log growth.
 - Health checks use `/healthz`, which reads cached public state when available so SQLite ingest pressure does not make Docker health checks flap.
-- PacketTV, route glow, cluster role badges, hover-only ordinary labels, and
-  the Original/OpenFreeMap map toggle are frontend-only features and do not
-  require public API schema changes.
+- Route glow, cluster role badges, hover-only ordinary labels, and the
+  Original/OpenFreeMap map toggle are frontend-only features and do not require
+  public API schema changes.
 
 ## Troubleshooting
 

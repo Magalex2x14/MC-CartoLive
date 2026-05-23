@@ -17,7 +17,6 @@ import HotRoutes from './components/HotRoutes';
 import Legend from './components/Legend';
 import LinkBar from './components/LinkBar';
 import PlotRoutesPanel, { type PlotMode, type PlotResult } from './components/PlotRoutesPanel';
-import PacketTV from './components/PacketTV';
 import SelectionDrawer from './components/SelectionDrawer';
 import StatusBar from './components/StatusBar';
 import { nextLiveEnvelopeDelayMs, takeDueLiveEnvelopes } from './livePacing';
@@ -37,7 +36,6 @@ import {
   type SelectionState
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
-import { selectPacketTvPulse } from './packetTv';
 import type { PublicActivity, PublicLiveEnvelope } from './types';
 
 export default function App() {
@@ -46,7 +44,6 @@ export default function App() {
   const [socketStatus, setSocketStatus] = useState('starting');
   const [paused, setPaused] = useState(false);
   const [followTraffic, setFollowTraffic] = useState(false);
-  const [packetTvOpen, setPacketTvOpen] = useState(false);
   const [mapBaseMode, setMapBaseMode] = useState<MapBaseMode>('original');
   const [query, setQuery] = useState(() => sharedViewRef.current?.q ?? '');
   const [clearToken, setClearToken] = useState(0);
@@ -246,8 +243,6 @@ export default function App() {
     () => messageHistoryForNode(selectedNode, visibleRoutes, state.activity),
     [selectedNode, state.activity, visibleRoutes]
   );
-  const packetTvCandidate = useMemo(() => selectPacketTvPulse(state.pulses, liveClock), [state.pulses, liveClock]);
-
   const activityClock = Math.max(liveClock, state.serverTime, state.activity[0]?.heardAt ?? 0, state.routeTraces.at(-1)?.heardAt ?? 0);
   const routeActivityByID = useMemo(() => summarizeRouteActivity(state.routeTraces, activityClock), [state.routeTraces, activityClock]);
   const coverage = useMemo(() => liveCoverageStats(state.activity, activityClock), [state.activity, activityClock]);
@@ -469,18 +464,6 @@ export default function App() {
         <RadioTower size={15} />
         <span>Live Follow</span>
       </button>
-      <button
-        className={`packet-tv-button ${packetTvOpen ? 'active' : ''}`}
-        type="button"
-        aria-pressed={packetTvOpen}
-        title={packetTvOpen ? 'Close PacketTV' : 'Open PacketTV chase view'}
-        onClick={() => setPacketTvOpen((value) => !value)}
-      >
-        <RadioTower size={15} />
-        <span>PacketTV</span>
-      </button>
-      <PacketTV open={packetTvOpen} candidate={packetTvCandidate} onClose={() => setPacketTvOpen(false)} />
-
       <PlotRoutesPanel
         mode={plotMode}
         firstNode={plotFirstNode}

@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.4.0
+
+- Unified the map detail zoom gate so routes, route payload glow, packet canvas effects, nodes, observer icons, observer labels, and message bubbles enter and exit together.
+- Reworked low-zoom clusters into role-split cluster visuals with payload-colored activity glow.
+- Removed persistent ordinary node labels to stop label flicker; node names and last-heard age now live in hover/detail panels, while observer names remain persistent without age text.
+- Added stale node styling: nodes grey after 30 minutes without mesh activity and darken after 60 minutes.
+- Subdued idle route lines and kept packet payload glow active only on current comet routes.
+- Replaced loud repeated observer rings with a sustained lower-pressure observer aura.
+- Added PacketTV, a floating in-app chase-camera panel that prioritizes long live public routed packets.
+- Vendored a curated asset subset for project branding, role icons, observer marker, packet dots, and legend polish.
+
+## 1.3.5
+
+- Improved route rendering performance for slower computers.
+- Removed the unused invisible route hit layer now that routes are not directly clickable on the map.
+- Moved live route payload glows to a small active-route-only GeoJSON source instead of evaluating every public route with feature-state updates.
+- Added route render signatures so live packet counter changes do not force full route source rebuilds when geometry, frequency bucket, and focus state are unchanged.
+- Slightly reduced passive route stroke cost while preserving selected node, phonebook path, plotted route, and packet comet visibility.
+- Paced websocket event application by backend `displayAt` timestamps so bursty packet traffic ticks through the UI instead of landing in one frame.
+- Replayed fresh snapshot route pulses after reconnect/poll recovery so packet comets do not disappear during websocket recovery.
+- Made `/healthz` prefer cached public state so Docker health checks do not add SQLite pressure during live ingest.
+
 ## 1.3.1
 
 - Changed phonebook defaults from max-hop-first to best useful routes first.

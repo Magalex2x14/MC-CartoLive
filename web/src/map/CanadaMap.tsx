@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { PublicMessageAnchor, PublicNode, PublicObserverBurst, PublicRoute, PublicRoutePulse } from '../types';
+import { routeAssetIcons } from '../assets/routes/assets';
 import { parseSharedView, type MapViewState, type SharedViewState } from '../shareView';
 import { normalizePayloadType, payloadVisual } from '../payloadVisuals';
-import { isMappableEndpoint, isMappableNode } from './geo';
+import { isMappableNode } from './geo';
 import { shouldAnimateLiveEvent } from './animationSafety';
 import {
   CLUSTER_ACTIVITY_GLOW_MS,
@@ -26,8 +27,10 @@ import {
   nodeLabelActivityProgress,
   nodeActivityGlow,
   nodeActivityHeat,
+  nodeEffectiveActivityAt,
   nodeLastHeardAgeLabel,
-  nodeMapLabel
+  nodeMapLabel,
+  nodeStaleLevel
 } from './nodeLabels';
 import {
   ROUTE_ACTIVE_OPACITY,
@@ -40,6 +43,15 @@ import {
   ROUTE_PATH_WIDTH,
   ROUTE_DIMMED_OPACITY
 } from './routeStyles';
+import {
+  pruneRoutePayloadGlows,
+  routeColorSignature,
+  routeColors,
+  routePayloadGlowsToGeoJSON,
+  routeSourceSignature,
+  routesToGeoJSON,
+  type RoutePayloadGlow
+} from './routeSource';
 import { DETAIL_MIN_ZOOM, NODE_CLUSTER_MAX_ZOOM, type MapVisualMode, isClusterZoom, isDetailZoom, visualModeForZoom } from './zoomMode';
 
 export type MapAction =
@@ -63,6 +75,7 @@ interface Props {
   highlightedPathNodeIDs: Set<string>;
   plotMode: 'off' | 'node' | 'area';
   mapAction: MapAction;
+  baseMode: MapBaseMode;
   initialView: SharedViewState | null;
   loading: boolean;
   onPositionedNodesRendered: () => void;
@@ -83,12 +96,6 @@ type NodeActivity = {
   lastAt: number;
 };
 
-type RoutePayloadGlow = {
-  color: string;
-  startedAt: number;
-  expiresAt: number;
-};
-
 type NodeTelemetry = {
   lastSeen: number;
   activityCount: number;
@@ -98,12 +105,12 @@ type HoveredNodeToast = {
   node: PublicNode;
   x: number;
   y: number;
+  lastHeardAt: number;
 };
 
 type ScreenNodeLabel = {
   id: string;
   name: string;
-  age: string;
   x: number;
   y: number;
   selected: boolean;
@@ -136,36 +143,164 @@ const CLUSTER_ACTIVITY_AURA_LAYER = 'cluster-activity-aura';
 const CLUSTER_ACTIVITY_RING_LAYER = 'cluster-activity-ring';
 const CLUSTER_LAYER = 'node-clusters';
 const CLUSTER_COUNT_LAYER = 'node-cluster-counts';
+const CLUSTER_ROLE_BADGE_LAYER_PREFIX = 'node-cluster-role';
 const ROUTE_GLOW_LAYER = 'route-focus-glow';
+const ROUTE_PAYLOAD_GLOW_SOURCE = 'route-payload-glows';
 const ROUTE_PAYLOAD_GLOW_LAYER = 'route-payload-glow';
 const NODE_HALO_LAYER = 'selected-node-halo';
 const NODE_LAYER = 'node-symbols';
 const OBSERVER_LAYER = 'observer-symbols';
 const ROUTE_LAYER = 'route-lines';
-const ROUTE_HIT_LAYER = 'route-hit-lines';
+const CARTO_DARK_SOURCE = 'carto-dark-tiles';
+const CARTO_DARK_LAYER = 'carto-dark';
+const OPENFREEMAP_SOURCE = 'openfreemap-planet';
+const TERRAIN_SOURCE = 'meshcore-terrain-dem';
+const HILLSHADE_SOURCE = 'meshcore-hillshade-dem';
+const HILLSHADE_LAYER = 'meshcore-topographic-hillshade';
+const BUILDINGS_3D_LAYER = 'openfreemap-3d-buildings';
 const NODE_ACTIVE_LABEL_VISIBLE_MS = 24_000;
 const NODE_LABEL_RECENT_VISIBLE_MS = 90_000;
 const MESSAGE_BUBBLE_LIFETIME_MS = 7_200;
 const MESSAGE_BUBBLE_MAX_WIDTH_PX = 440;
 const MESSAGE_BUBBLE_EDGE_PADDING_PX = 16;
 const ROUTE_PAYLOAD_GLOW_MS = 5_200;
-const ROUTE_PAYLOAD_GLOW_UPDATE_MS = 90;
-const ROUTE_VISUAL_CADENCE_MS = 150;
-const OBSERVER_VISUAL_CADENCE_MS = 105;
+const ROUTE_PAYLOAD_GLOW_UPDATE_MS = 160;
+const ROUTE_VISUAL_CADENCE_MS = 125;
+const OBSERVER_VISUAL_CADENCE_MS = 95;
 const MAX_PENDING_ROUTE_VISUALS = 220;
 const MAX_PENDING_OBSERVER_VISUALS = 360;
 const FOLLOW_TRAFFIC_MIN_INTERVAL_MS = 3200;
 const FOLLOW_TRAFFIC_DURATION_MS = 1450;
 const FOLLOW_TRAFFIC_ROUTE_MAX_ZOOM = 8.9;
 const FOLLOW_TRAFFIC_POINT_ZOOM = 8.4;
+const DEFAULT_ORIGINAL_MAP_PITCH = 0;
+const DEFAULT_ORIGINAL_MAP_BEARING = 0;
+const DEFAULT_OPENFREEMAP_MAP_PITCH = 46;
+const DEFAULT_OPENFREEMAP_MAP_BEARING = -11;
+const DEFAULT_OPENFREEMAP_STYLE_URL = '';
+const DEFAULT_OPENFREEMAP_TILEJSON_URL = 'https://tiles.openfreemap.org/planet';
+const DEFAULT_TERRAIN_TILEJSON_URL = 'https://demotiles.maplibre.org/terrain-tiles/tiles.json';
+const OPENFREEMAP_STYLE_URL = envURL('VITE_OPENFREEMAP_STYLE_URL', DEFAULT_OPENFREEMAP_STYLE_URL);
+const OPENFREEMAP_TILEJSON_URL = envURL('VITE_OPENFREEMAP_TILEJSON_URL', DEFAULT_OPENFREEMAP_TILEJSON_URL);
+const TERRAIN_TILEJSON_URL = envURL('VITE_TERRAIN_TILEJSON_URL', DEFAULT_TERRAIN_TILEJSON_URL);
+const TERRAIN_EXAGGERATION = envFloat('VITE_TERRAIN_EXAGGERATION', 1.25);
 
-const routeColors = ['#2563eb', '#06b6d4', '#22c55e', '#f97316', '#ef4444'];
+export type MapBaseMode = 'original' | 'openfreemap';
 
-const mapStyle: maplibregl.StyleSpecification = {
+const ROUTE_FOCUS_FILTER: any = ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'connected'], true]];
+type ClusterRoleBadge = {
+  key: string;
+  property: 'repeaterCount' | 'companionCount' | 'roomCount' | 'observerCount' | 'otherCount';
+  color: string;
+  translate: [number, number];
+};
+
+const CLUSTER_ROLE_BADGES: ClusterRoleBadge[] = [
+  { key: 'repeater', property: 'repeaterCount', color: '#26E07F', translate: [-20, 15] },
+  { key: 'companion', property: 'companionCount', color: '#4DA6FF', translate: [0, 24] },
+  { key: 'room', property: 'roomCount', color: '#B26BFF', translate: [20, 15] },
+  { key: 'observer', property: 'observerCount', color: '#FFB347', translate: [0, -25] },
+  { key: 'other', property: 'otherCount', color: '#94A3B8', translate: [20, -12] }
+];
+
+function nodeClusterProperties() {
+  return {
+    repeaterCount: ['+', ['case', ['==', ['get', 'role'], 'repeater'], 1, 0]],
+    companionCount: ['+', ['case', ['==', ['get', 'role'], 'companion'], 1, 0]],
+    roomCount: ['+', ['case', ['==', ['get', 'role'], 'room_server'], 1, 0]],
+    observerCount: ['+', ['case', ['==', ['get', 'observer'], true], 1, 0]],
+    otherCount: ['+', ['case', ['all', ['!=', ['get', 'observer'], true], ['any', ['==', ['get', 'role'], 'sensor'], ['==', ['get', 'role'], 'unknown']]], 1, 0]]
+  };
+}
+
+function clusterRoleBadgeCircleLayers(): maplibregl.LayerSpecification[] {
+  return CLUSTER_ROLE_BADGES.map((badge) => ({
+    id: `${CLUSTER_ROLE_BADGE_LAYER_PREFIX}-${badge.key}-dot`,
+    type: 'circle',
+    source: NODE_SOURCE,
+    maxzoom: DETAIL_MIN_ZOOM,
+    filter: ['all', ['has', 'point_count'], ['>', ['coalesce', ['get', badge.property], 0], 0]],
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 7.2, 7, 9.5],
+      'circle-color': badge.color,
+      'circle-translate': badge.translate,
+      'circle-stroke-color': 'rgba(255, 255, 255, 0.92)',
+      'circle-stroke-width': 1.25,
+      'circle-opacity': 0.96
+    }
+  }));
+}
+
+function clusterRoleBadgeTextLayers(): maplibregl.LayerSpecification[] {
+  return CLUSTER_ROLE_BADGES.map((badge) => ({
+    id: `${CLUSTER_ROLE_BADGE_LAYER_PREFIX}-${badge.key}-count`,
+    type: 'symbol',
+    source: NODE_SOURCE,
+    maxzoom: DETAIL_MIN_ZOOM,
+    filter: ['all', ['has', 'point_count'], ['>', ['coalesce', ['get', badge.property], 0], 0]],
+    layout: {
+      'text-field': ['case', ['>', ['coalesce', ['get', badge.property], 0], 99], '99+', ['to-string', ['coalesce', ['get', badge.property], 0]]],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 7.2, 7, 8.4],
+      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true
+    },
+    paint: {
+      'text-color': '#ffffff',
+      'text-halo-color': '#020617',
+      'text-halo-width': 1.2,
+      'text-halo-blur': 0.2,
+      'text-translate': badge.translate
+    }
+  }));
+}
+
+const NODE_CIRCLE_COLOR: any = [
+  'case',
+  ['==', ['get', 'observer'], true],
+  '#FFB347',
+  ['==', ['get', 'staleLevel'], 2],
+  '#243142',
+  ['==', ['get', 'staleLevel'], 1],
+  '#64748b',
+  ['get', 'color']
+];
+
+const NODE_CIRCLE_STROKE_COLOR: any = [
+  'case',
+  ['==', ['get', 'selected'], true],
+  '#ffffff',
+  ['==', ['get', 'path'], true],
+  '#facc15',
+  ['==', ['get', 'observer'], true],
+  '#fff7ed',
+  ['==', ['get', 'neighbor'], true],
+  '#67e8f9',
+  ['==', ['get', 'staleLevel'], 2],
+  'rgba(148, 163, 184, 0.28)',
+  ['==', ['get', 'staleLevel'], 1],
+  'rgba(203, 213, 225, 0.45)',
+  'rgba(248, 250, 252, 0.82)'
+];
+
+const NODE_CIRCLE_OPACITY: any = [
+  'case',
+  ['==', ['get', 'dimmed'], true],
+  0.24,
+  ['==', ['get', 'observer'], true],
+  0.96,
+  ['==', ['get', 'staleLevel'], 2],
+  0.4,
+  ['==', ['get', 'staleLevel'], 1],
+  0.58,
+  0.9
+];
+
+export const originalMapStyle: maplibregl.StyleSpecification = {
   version: 8,
   glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
-    cartoDark: {
+    [CARTO_DARK_SOURCE]: {
       type: 'raster',
       tiles: [
         'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
@@ -174,15 +309,55 @@ const mapStyle: maplibregl.StyleSpecification = {
       ],
       tileSize: 256,
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }
+  },
+  layers: [
+    {
+      id: 'map-background',
+      type: 'background',
+      paint: { 'background-color': '#05070b' }
+    },
+    {
+      id: CARTO_DARK_LAYER,
+      type: 'raster',
+      source: CARTO_DARK_SOURCE,
+      minzoom: 0,
+      maxzoom: 20
+    }
+  ]
+};
+
+export const mapOverlayStyle: maplibregl.StyleSpecification = {
+  version: 8,
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources: {
+    [OPENFREEMAP_SOURCE]: {
+      type: 'vector',
+      url: OPENFREEMAP_TILEJSON_URL
+    },
+    [TERRAIN_SOURCE]: {
+      type: 'raster-dem',
+      url: TERRAIN_TILEJSON_URL,
+      tileSize: 256
+    },
+    [HILLSHADE_SOURCE]: {
+      type: 'raster-dem',
+      url: TERRAIN_TILEJSON_URL,
+      tileSize: 256,
     },
     [NODE_SOURCE]: {
       type: 'geojson',
       data: emptyCollection() as any,
       cluster: true,
       clusterMaxZoom: NODE_CLUSTER_MAX_ZOOM,
-      clusterRadius: 58
-    },
+      clusterRadius: 58,
+      clusterProperties: nodeClusterProperties()
+    } as any,
     [ROUTE_SOURCE]: {
+      type: 'geojson',
+      data: emptyCollection() as any
+    },
+    [ROUTE_PAYLOAD_GLOW_SOURCE]: {
       type: 'geojson',
       data: emptyCollection() as any
     },
@@ -195,20 +370,187 @@ const mapStyle: maplibregl.StyleSpecification = {
     {
       id: 'map-background',
       type: 'background',
-      paint: { 'background-color': '#05070b' }
+      paint: { 'background-color': '#030712' }
     },
     {
-      id: 'carto-dark',
-      type: 'raster',
-      source: 'cartoDark',
-      minzoom: 0,
-      maxzoom: 20
+      id: 'dark-landcover-wood',
+      type: 'fill',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'landcover',
+      filter: ['==', ['get', 'class'], 'wood'],
+      paint: {
+        'fill-color': '#0f2a21',
+        'fill-opacity': 0.58
+      }
+    },
+    {
+      id: 'dark-landcover-grass',
+      type: 'fill',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'landcover',
+      filter: ['match', ['get', 'class'], ['grass', 'wetland'], true, false],
+      paint: {
+        'fill-color': '#15331f',
+        'fill-opacity': 0.4
+      }
+    },
+    {
+      id: 'dark-park',
+      type: 'fill',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'park',
+      paint: {
+        'fill-color': '#12351f',
+        'fill-opacity': 0.62
+      }
+    },
+    {
+      id: 'dark-landuse',
+      type: 'fill',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'landuse',
+      filter: ['match', ['get', 'class'], ['residential', 'industrial', 'commercial', 'school', 'hospital'], true, false],
+      paint: {
+        'fill-color': [
+          'match',
+          ['get', 'class'],
+          'industrial',
+          '#182033',
+          'commercial',
+          '#1e1b2f',
+          'school',
+          '#172538',
+          'hospital',
+          '#2b1720',
+          '#111827'
+        ],
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.22, 13, 0.55]
+      }
+    },
+    {
+      id: 'dark-water',
+      type: 'fill',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'water',
+      filter: ['!=', ['get', 'brunnel'], 'tunnel'],
+      paint: {
+        'fill-color': '#0b2440'
+      }
+    },
+    {
+      id: 'dark-waterway',
+      type: 'line',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'waterway',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#1d4f7a',
+        'line-opacity': 0.82,
+        'line-width': ['interpolate', ['exponential', 1.3], ['zoom'], 8, 0.5, 14, 1.3, 18, 4]
+      }
+    },
+    {
+      id: HILLSHADE_LAYER,
+      type: 'hillshade',
+      source: HILLSHADE_SOURCE,
+      paint: {
+        'hillshade-method': 'multidirectional',
+        'hillshade-highlight-color': ['#334155', '#475569', '#64748b', '#94a3b8'],
+        'hillshade-shadow-color': ['#020617', '#06101f', '#0f172a', '#111827'],
+        'hillshade-illumination-direction': [270, 315, 0, 45],
+        'hillshade-illumination-altitude': [24, 30, 36, 28],
+        'hillshade-exaggeration': 0.72
+      } as any
+    },
+    {
+      id: 'dark-boundary',
+      type: 'line',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'boundary',
+      filter: ['all', ['<=', ['coalesce', ['get', 'admin_level'], 99], 4], ['!=', ['get', 'maritime'], 1]],
+      paint: {
+        'line-color': '#475569',
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.36, 6, 0.8],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.7, 8, 1.5, 12, 2.4]
+      }
+    },
+    {
+      id: 'dark-road-casing',
+      type: 'line',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'transportation',
+      filter: ['match', ['get', 'class'], ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'], true, false],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#020617',
+        'line-opacity': 0.72,
+        'line-width': ['interpolate', ['exponential', 1.45], ['zoom'], 5, 0.5, 10, 1.2, 14, 5, 18, 18]
+      }
+    },
+    {
+      id: 'dark-road',
+      type: 'line',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'transportation',
+      filter: ['match', ['get', 'class'], ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'], true, false],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': [
+          'match',
+          ['get', 'class'],
+          'motorway',
+          '#a16207',
+          'trunk',
+          '#854d0e',
+          'primary',
+          '#713f12',
+          'secondary',
+          '#334155',
+          'tertiary',
+          '#263449',
+          '#1f2937'
+        ],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 4, 0.45, 12, 0.86],
+        'line-width': ['interpolate', ['exponential', 1.35], ['zoom'], 5, 0.3, 10, 0.8, 14, 3.2, 18, 12]
+      }
+    },
+    {
+      id: 'dark-rail',
+      type: 'line',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'transportation',
+      filter: ['match', ['get', 'class'], ['rail', 'transit'], true, false],
+      paint: {
+        'line-color': '#64748b',
+        'line-opacity': 0.64,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 16, 1.4]
+      }
+    },
+    {
+      id: 'dark-place-labels',
+      type: 'symbol',
+      source: OPENFREEMAP_SOURCE,
+      'source-layer': 'place',
+      filter: ['match', ['get', 'class'], ['city', 'town', 'village', 'state', 'country'], true, false],
+      layout: {
+        'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 14, 12, 18],
+        'text-max-width': 8
+      },
+      paint: {
+        'text-color': '#cbd5e1',
+        'text-halo-color': '#020617',
+        'text-halo-width': 1.6,
+        'text-halo-blur': 0.4
+      }
     },
     {
       id: ROUTE_GLOW_LAYER,
       type: 'line',
       source: ROUTE_SOURCE,
       minzoom: DETAIL_MIN_ZOOM,
+      filter: ROUTE_FOCUS_FILTER,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': [
@@ -247,18 +589,14 @@ const mapStyle: maplibregl.StyleSpecification = {
     {
       id: ROUTE_PAYLOAD_GLOW_LAYER,
       type: 'line',
-      source: ROUTE_SOURCE,
+      source: ROUTE_PAYLOAD_GLOW_SOURCE,
       minzoom: DETAIL_MIN_ZOOM,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': ['coalesce', ['feature-state', 'payloadGlowColor'], '#ffffff'],
-        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 6.5, 10, 9, 13, 13],
-        'line-blur': 5,
-        'line-opacity': [
-          '*',
-          ['coalesce', ['feature-state', 'payloadGlow'], 0],
-          ['case', ['==', ['get', 'dimmed'], true], 0.2, 0.46]
-        ]
+        'line-color': ['get', 'color'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 5.8, 10, 7.8, 13, 11],
+        'line-blur': 4,
+        'line-opacity': ['coalesce', ['get', 'opacity'], 0]
       }
     },
     {
@@ -294,18 +632,6 @@ const mapStyle: maplibregl.StyleSpecification = {
       }
     },
     {
-      id: ROUTE_HIT_LAYER,
-      type: 'line',
-      source: ROUTE_SOURCE,
-      minzoom: DETAIL_MIN_ZOOM,
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': '#ffffff',
-        'line-width': 14,
-        'line-opacity': 0
-      }
-    },
-    {
       id: CLUSTER_ACTIVITY_AURA_LAYER,
       type: 'circle',
       source: CLUSTER_ACTIVITY_SOURCE,
@@ -333,14 +659,15 @@ const mapStyle: maplibregl.StyleSpecification = {
       maxzoom: DETAIL_MIN_ZOOM,
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color': ['step', ['get', 'point_count'], '#164e63', 25, '#166534', 75, '#7c2d12'],
+        'circle-color': ['step', ['get', 'point_count'], '#164e63', 25, '#166534', 75, '#9a3412'],
         'circle-radius': ['step', ['get', 'point_count'], 17, 25, 22, 75, 28],
-        'circle-stroke-width': ['step', ['get', 'point_count'], 1.8, 25, 2.2, 75, 2.6],
-        'circle-stroke-color': 'rgba(248, 250, 252, 0.86)',
-        'circle-opacity': 0.92,
+        'circle-stroke-width': ['step', ['get', 'point_count'], 1.9, 25, 2.3, 75, 2.8],
+        'circle-stroke-color': 'rgba(255, 255, 255, 0.9)',
+        'circle-opacity': 0.94,
         'circle-blur': 0.04
       }
     },
+    ...clusterRoleBadgeCircleLayers(),
     {
       id: CLUSTER_ACTIVITY_RING_LAYER,
       type: 'circle',
@@ -363,6 +690,7 @@ const mapStyle: maplibregl.StyleSpecification = {
         'circle-blur': 0.08
       }
     },
+    ...clusterRoleBadgeTextLayers(),
     {
       id: CLUSTER_COUNT_LAYER,
       type: 'symbol',
@@ -415,24 +743,46 @@ const mapStyle: maplibregl.StyleSpecification = {
           12,
           ['case', ['==', ['get', 'selected'], true], 9, ['==', ['get', 'path'], true], 8.1, ['==', ['get', 'neighbor'], true], 7.2, 7]
         ],
-        'circle-color': ['get', 'color'],
-        'circle-stroke-color': [
-          'case',
-          ['==', ['get', 'selected'], true],
-          '#ffffff',
-          ['==', ['get', 'path'], true],
-          '#facc15',
-          ['==', ['get', 'neighbor'], true],
-          '#67e8f9',
-          'rgba(248, 250, 252, 0.82)'
-        ],
-        'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'path'], true], 1.95, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
-        'circle-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.28, 0.92],
-        'circle-stroke-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.25, ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'neighbor'], true]], 1, 0.86]
+        'circle-color': NODE_CIRCLE_COLOR,
+        'circle-stroke-color': NODE_CIRCLE_STROKE_COLOR,
+        'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'path'], true], 1.95, ['==', ['get', 'observer'], true], 2, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
+        'circle-opacity': NODE_CIRCLE_OPACITY,
+        'circle-stroke-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.22, ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'observer'], true]], 1, ['==', ['get', 'staleLevel'], 2], 0.34, ['==', ['get', 'staleLevel'], 1], 0.52, 0.86]
+      }
+    },
+    {
+      id: OBSERVER_LAYER,
+      type: 'symbol',
+      source: NODE_SOURCE,
+      minzoom: DETAIL_MIN_ZOOM,
+      filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'observer'], true]],
+      layout: {
+        'icon-image': 'observer-node',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 7, 0.42, 11, 0.58],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true
+      },
+      paint: {
+        'icon-opacity': ['case', ['==', ['get', 'selected'], true], 1, ['==', ['get', 'dimmed'], true], 0.34, 0.94]
       }
     }
   ]
 };
+
+export const openFreeMapStyle: string | maplibregl.StyleSpecification = OPENFREEMAP_STYLE_URL || mapOverlayStyle;
+export const mapStyle: string | maplibregl.StyleSpecification = originalMapStyle;
+
+function mapStyleForMode(mode: MapBaseMode): string | maplibregl.StyleSpecification {
+  return mode === 'openfreemap' ? openFreeMapStyle : originalMapStyle;
+}
+
+function defaultPitchForMode(mode: MapBaseMode): number {
+  return mode === 'openfreemap' ? DEFAULT_OPENFREEMAP_MAP_PITCH : DEFAULT_ORIGINAL_MAP_PITCH;
+}
+
+function defaultBearingForMode(mode: MapBaseMode): number {
+  return mode === 'openfreemap' ? DEFAULT_OPENFREEMAP_MAP_BEARING : DEFAULT_ORIGINAL_MAP_BEARING;
+}
 
 export default function CanadaMap({
   nodes,
@@ -448,6 +798,7 @@ export default function CanadaMap({
   highlightedPathNodeIDs,
   plotMode,
   mapAction,
+  baseMode,
   initialView,
   loading,
   onPositionedNodesRendered,
@@ -473,6 +824,8 @@ export default function CanadaMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const animatorRef = useRef<PacketAnimator | null>(null);
   const loadedRef = useRef(false);
+  const layerEventsBoundRef = useRef(false);
+  const initialViewAppliedRef = useRef(false);
   const fitInitialNodesRef = useRef(false);
   const positionedNodesReadyRef = useRef(false);
   const seenPulseIDsRef = useRef<Set<string>>(new Set());
@@ -496,10 +849,14 @@ export default function CanadaMap({
   const messageBubbleCleanupTimersRef = useRef<Map<string, number>>(new Map());
   const pageHiddenRef = useRef(typeof document !== 'undefined' ? document.hidden : false);
   const initialViewRef = useRef(initialView);
+  const baseModeRef = useRef<MapBaseMode>(baseMode);
   const nodesRef = useRef(nodes);
   const routesRef = useRef(routes);
   const selectedNodeIDRef = useRef(selectedNodeID);
+  const selectedRouteIDRef = useRef(selectedRouteID);
   const nodeFocusRef = useRef(nodeFocus);
+  const routeSourceSignatureRef = useRef('');
+  const routeColorSignatureRef = useRef('');
   const positionedNodesRenderedRef = useRef(onPositionedNodesRendered);
   const viewChangeRef = useRef(onViewChange);
   const selectedNodeRef = useRef(onSelectNode);
@@ -537,8 +894,9 @@ export default function CanadaMap({
     addPulseNodeActivity(map, nodeActivityRef.current, pulse);
     addPulseNodeMeshActivity(nodeMeshActivityAtRef.current, pulse);
     if (shouldAnimate) {
-      addPulseRoutePayloadGlow(map, routePayloadGlowRef.current, pulse);
-      startRoutePayloadGlowTimer(map, routePayloadGlowRef, routePayloadGlowTimerRef);
+      addPulseRoutePayloadGlow(routePayloadGlowRef.current, pulse);
+      setRoutePayloadGlowSource(map, routesRef.current, routePayloadGlowRef.current, selectedRouteIDRef.current, nodeFocusRef.current);
+      startRoutePayloadGlowTimer(map, routesRef, routePayloadGlowRef, selectedRouteIDRef, nodeFocusRef, routePayloadGlowTimerRef);
     }
     setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, pulse.heardAt, nodeMeshActivityAtRef.current, nodeActivityRef.current));
     if (shouldAnimate && shouldShowMessageBubble(pulse)) {
@@ -597,6 +955,10 @@ export default function CanadaMap({
   }, [selectedNodeID]);
 
   useEffect(() => {
+    selectedRouteIDRef.current = selectedRouteID;
+  }, [selectedRouteID]);
+
+  useEffect(() => {
     nodeFocusRef.current = nodeFocus;
   }, [nodeFocus]);
 
@@ -628,19 +990,26 @@ export default function CanadaMap({
     if (startupView) initialViewRef.current = startupView;
     if (startupView) fitInitialNodesRef.current = true;
     setMapZoom(Number((startupView?.z ?? 3.35).toFixed(2)));
+    const initialStyle = mapStyleForMode(baseModeRef.current);
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: mapStyle,
+      style: initialStyle,
       center: startupView ? [startupView.lng, startupView.lat] : [-106.3468, 56.1304],
       zoom: startupView?.z ?? 3.35,
+      pitch: startupView?.pitch ?? defaultPitchForMode(baseModeRef.current),
+      bearing: startupView?.bearing ?? defaultBearingForMode(baseModeRef.current),
       minZoom: 2.4,
-      maxZoom: 13,
+      maxZoom: 18,
+      maxPitch: 85,
       fadeDuration: 0,
+      canvasContextAttributes: { antialias: true },
       attributionControl: { compact: true }
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'bottom-right');
+    map.dragRotate.enable();
+    map.touchZoomRotate.enableRotation();
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), 'bottom-right');
     (window as any).__meshcoreMap = map;
-    (window as any).__meshcoreMapStyle = mapStyle;
+    (window as any).__meshcoreMapStyle = initialStyle;
     mapRef.current = map;
     animatorRef.current = new PacketAnimator(map, canvasRef.current, { maskLayerIDs: [CLUSTER_LAYER, NODE_HALO_LAYER, NODE_LAYER] });
 
@@ -700,13 +1069,22 @@ export default function CanadaMap({
         initializeRetry = window.setTimeout(initializeMapLayers, 250);
         return;
       }
+      let baseWarning = '';
+      if (baseModeRef.current === 'openfreemap') {
+        try {
+          addOpenFreeMap3DBase(map);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          baseWarning = `OpenFreeMap base warning: ${message}`;
+        }
+      } else {
+        clearMapTerrain(map);
+      }
       try {
         addPublicLayers(map);
-        bindLayerEvents(map, nodesRef, selectedNodeRef, plotModeRef, plotNodePickRef, plotMapPointRef, clearSelectionRef, setHoveredNode);
-        try {
-          addBaseMapLayer(map);
-        } catch {
-          // The public live layers must not be blocked by external basemap tile availability.
+        if (!layerEventsBoundRef.current) {
+          bindLayerEvents(map, nodesRef, nodeMeshActivityAtRef, selectedNodeRef, plotModeRef, plotNodePickRef, plotMapPointRef, clearSelectionRef, setHoveredNode);
+          layerEventsBoundRef.current = true;
         }
       } catch (error) {
         const style = map.getStyle();
@@ -717,17 +1095,29 @@ export default function CanadaMap({
         initializeRetry = window.setTimeout(initializeMapLayers, 1000);
         return;
       }
-      setMapInitError('');
+      setMapInitError(baseWarning);
       loadedRef.current = true;
-      if (initialViewRef.current) {
+      if (initialViewRef.current && !initialViewAppliedRef.current) {
+        initialViewAppliedRef.current = true;
         fitInitialNodesRef.current = true;
         map.jumpTo({
           center: [initialViewRef.current.lng, initialViewRef.current.lat],
-          zoom: initialViewRef.current.z
+          zoom: initialViewRef.current.z,
+          pitch: initialViewRef.current.pitch ?? defaultPitchForMode(baseModeRef.current),
+          bearing: initialViewRef.current.bearing ?? defaultBearingForMode(baseModeRef.current)
         });
       }
       setSourceData(map, NODE_SOURCE, nodesToGeoJSON(nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current));
-      setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routesRef.current, selectedRouteID, nodeFocusRef.current));
+      updateRouteRendering(
+        map,
+        routesRef.current,
+        selectedRouteIDRef.current,
+        nodeFocusRef.current,
+        routeSourceSignatureRef,
+        routeColorSignatureRef,
+        animatorRef,
+        true
+      );
       publishView();
       updateMapOverlays();
       markPositionedNodesReady(map, nodesRef.current, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
@@ -773,6 +1163,37 @@ export default function CanadaMap({
   }, []);
 
   useEffect(() => {
+    if (baseModeRef.current === baseMode) return;
+    baseModeRef.current = baseMode;
+    const map = mapRef.current;
+    if (!map) return;
+
+    loadedRef.current = false;
+    routeSourceSignatureRef.current = '';
+    routeColorSignatureRef.current = '';
+    setMapInitError('');
+    setScreenNodeLabels([]);
+    setMessageBubbles([]);
+    animatorRef.current?.clear();
+
+    clearNodeActivityStates(map, nodeActivityRef.current);
+    stopNodeActivityTimer(nodeActivityTimerRef);
+    clearRoutePayloadGlowStates(map, routePayloadGlowRef.current);
+    stopRoutePayloadGlowTimer(routePayloadGlowTimerRef);
+    clearClusterActivityGlowStates(map, clusterActivityGlowRef.current);
+    stopClusterActivityGlowTimer(clusterActivityGlowTimerRef);
+
+    const nextStyle = mapStyleForMode(baseMode);
+    (window as any).__meshcoreMapStyle = nextStyle;
+    map.setStyle(nextStyle);
+    map.easeTo({
+      pitch: defaultPitchForMode(baseMode),
+      bearing: defaultBearingForMode(baseMode),
+      duration: 500
+    });
+  }, [baseMode]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => setNodeLabelClock(Date.now()), NODE_LABEL_UPDATE_MS);
     return () => window.clearInterval(interval);
   }, []);
@@ -816,8 +1237,10 @@ export default function CanadaMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (loadedRef.current) setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routes, selectedRouteID, nodeFocus));
-    animatorRef.current?.setRouteColors(new Map(routes.map((route) => [route.id, routeColors[Math.max(0, Math.min(4, route.frequencyBucket))]])));
+    if (loadedRef.current) {
+      updateRouteRendering(map, routes, selectedRouteID, nodeFocus, routeSourceSignatureRef, routeColorSignatureRef, animatorRef);
+      setRoutePayloadGlowSource(map, routes, routePayloadGlowRef.current, selectedRouteID, nodeFocus);
+    }
   }, [routes, selectedRouteID, nodeFocus]);
 
   useEffect(() => {
@@ -905,6 +1328,7 @@ export default function CanadaMap({
     <div
       className={`map-wrap ${loading ? 'loading' : ''}`}
       data-map-zoom={mapZoom}
+      data-map-base-mode={baseMode}
       data-map-center-lat={mapCenter.lat}
       data-map-center-lng={mapCenter.lng}
       data-node-ref-count={nodesRef.current.length}
@@ -927,7 +1351,6 @@ export default function CanadaMap({
             } as CSSProperties}
           >
             <span className="node-screen-label-name">{label.name}</span>
-            <span className="node-screen-label-age">{label.age}</span>
           </div>
         ))}
       </div>
@@ -951,30 +1374,106 @@ export default function CanadaMap({
   );
 }
 
-function addBaseMapLayer(map: maplibregl.Map) {
-  if (!map.getSource('cartoDark')) {
-    map.addSource('cartoDark', {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-      ],
-      tileSize: 256,
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+function addOpenFreeMap3DBase(map: maplibregl.Map) {
+  if (!map.getSource(OPENFREEMAP_SOURCE)) {
+    map.addSource(OPENFREEMAP_SOURCE, {
+      type: 'vector',
+      url: OPENFREEMAP_TILEJSON_URL
     });
   }
-  if (!map.getLayer('carto-dark')) {
-    map.addLayer(
-      {
-        id: 'carto-dark',
-        type: 'raster',
-        source: 'cartoDark',
-        minzoom: 0,
-        maxzoom: 20
-      },
-      ROUTE_GLOW_LAYER
-    );
+  if (!map.getSource(TERRAIN_SOURCE)) {
+    map.addSource(TERRAIN_SOURCE, {
+      type: 'raster-dem',
+      url: TERRAIN_TILEJSON_URL,
+      tileSize: 256
+    });
+  }
+  if (!map.getSource(HILLSHADE_SOURCE)) {
+    map.addSource(HILLSHADE_SOURCE, {
+      type: 'raster-dem',
+      url: TERRAIN_TILEJSON_URL,
+      tileSize: 256
+    });
+  }
+
+  const labelLayerID = firstTextSymbolLayerID(map);
+  addLayerIfMissing(map, {
+    id: HILLSHADE_LAYER,
+    type: 'hillshade',
+    source: HILLSHADE_SOURCE,
+    paint: {
+      'hillshade-method': 'multidirectional',
+      'hillshade-highlight-color': ['#f8fafc', '#d9f99d', '#99f6e4', '#bae6fd'],
+      'hillshade-shadow-color': ['#020617', '#0f172a', '#1e293b', '#334155'],
+      'hillshade-illumination-direction': [270, 315, 0, 45],
+      'hillshade-illumination-altitude': [24, 32, 36, 28]
+    } as any
+  }, labelLayerID);
+
+  addLayerIfMissing(map, {
+    id: BUILDINGS_3D_LAYER,
+    type: 'fill-extrusion',
+    source: OPENFREEMAP_SOURCE,
+    'source-layer': 'building',
+    minzoom: 13,
+    filter: ['!=', ['get', 'hide_3d'], true],
+    paint: {
+      'fill-extrusion-color': [
+        'interpolate',
+        ['linear'],
+        ['coalesce', ['get', 'render_height'], 0],
+        0,
+        '#1e293b',
+        80,
+        '#155e75',
+        200,
+        '#7c3aed',
+        420,
+        '#c4b5fd'
+      ],
+      'fill-extrusion-height': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13,
+        0,
+        14.4,
+        ['coalesce', ['get', 'render_height'], 0]
+      ],
+      'fill-extrusion-base': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13,
+        0,
+        14.4,
+        ['coalesce', ['get', 'render_min_height'], 0],
+      ],
+      'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.22, 15, 0.78]
+    }
+  }, labelLayerID);
+
+  map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
+  map.setSky({
+    'sky-color': '#0f172a',
+    'horizon-color': '#2563eb',
+    'fog-color': '#020617',
+    'sky-horizon-blend': 0.45,
+    'horizon-fog-blend': 0.55,
+    'fog-ground-blend': 0.34
+  });
+}
+
+function clearMapTerrain(map: maplibregl.Map) {
+  try {
+    (map as any).setTerrain(null);
+  } catch {
+    // The original basemap has no terrain source; this is only needed after toggling back from OpenFreeMap.
+  }
+  try {
+    (map as any).setSky(null);
+  } catch {
+    // Older MapLibre styles may not have sky support enabled.
   }
 }
 
@@ -987,11 +1486,18 @@ function addPublicLayers(map: maplibregl.Map) {
       data: emptyCollection() as any,
       cluster: true,
       clusterMaxZoom: NODE_CLUSTER_MAX_ZOOM,
-      clusterRadius: 58
-    });
+      clusterRadius: 58,
+      clusterProperties: nodeClusterProperties()
+    } as any);
   }
   if (!map.getSource(ROUTE_SOURCE)) {
     map.addSource(ROUTE_SOURCE, {
+      type: 'geojson',
+      data: emptyCollection() as any
+    });
+  }
+  if (!map.getSource(ROUTE_PAYLOAD_GLOW_SOURCE)) {
+    map.addSource(ROUTE_PAYLOAD_GLOW_SOURCE, {
       type: 'geojson',
       data: emptyCollection() as any
     });
@@ -1008,6 +1514,7 @@ function addPublicLayers(map: maplibregl.Map) {
     type: 'line',
     source: ROUTE_SOURCE,
     minzoom: DETAIL_MIN_ZOOM,
+    filter: ROUTE_FOCUS_FILTER,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
       'line-color': [
@@ -1047,18 +1554,14 @@ function addPublicLayers(map: maplibregl.Map) {
   addLayerIfMissing(map, {
     id: ROUTE_PAYLOAD_GLOW_LAYER,
     type: 'line',
-    source: ROUTE_SOURCE,
+    source: ROUTE_PAYLOAD_GLOW_SOURCE,
     minzoom: DETAIL_MIN_ZOOM,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
-      'line-color': ['coalesce', ['feature-state', 'payloadGlowColor'], '#ffffff'],
-      'line-width': ['interpolate', ['linear'], ['zoom'], 7, 6.5, 10, 9, 13, 13],
-      'line-blur': 5,
-      'line-opacity': [
-        '*',
-        ['coalesce', ['feature-state', 'payloadGlow'], 0],
-        ['case', ['==', ['get', 'dimmed'], true], 0.2, 0.46]
-      ]
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 7, 5.8, 10, 7.8, 13, 11],
+      'line-blur': 4,
+      'line-opacity': ['coalesce', ['get', 'opacity'], 0]
     }
   });
 
@@ -1096,19 +1599,6 @@ function addPublicLayers(map: maplibregl.Map) {
   });
 
   addLayerIfMissing(map, {
-    id: ROUTE_HIT_LAYER,
-    type: 'line',
-    source: ROUTE_SOURCE,
-    minzoom: DETAIL_MIN_ZOOM,
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color': '#ffffff',
-      'line-width': 14,
-      'line-opacity': 0
-    }
-  });
-
-  addLayerIfMissing(map, {
     id: CLUSTER_ACTIVITY_AURA_LAYER,
     type: 'circle',
     source: CLUSTER_ACTIVITY_SOURCE,
@@ -1137,14 +1627,16 @@ function addPublicLayers(map: maplibregl.Map) {
     maxzoom: DETAIL_MIN_ZOOM,
     filter: ['has', 'point_count'],
     paint: {
-      'circle-color': ['step', ['get', 'point_count'], '#164e63', 25, '#166534', 75, '#7c2d12'],
+      'circle-color': ['step', ['get', 'point_count'], '#164e63', 25, '#166534', 75, '#9a3412'],
       'circle-radius': ['step', ['get', 'point_count'], 17, 25, 22, 75, 28],
-      'circle-stroke-width': ['step', ['get', 'point_count'], 1.8, 25, 2.2, 75, 2.6],
-      'circle-stroke-color': 'rgba(248, 250, 252, 0.86)',
-      'circle-opacity': 0.92,
+      'circle-stroke-width': ['step', ['get', 'point_count'], 1.9, 25, 2.3, 75, 2.8],
+      'circle-stroke-color': 'rgba(255, 255, 255, 0.9)',
+      'circle-opacity': 0.94,
       'circle-blur': 0.04
     }
   });
+
+  for (const layer of clusterRoleBadgeCircleLayers()) addLayerIfMissing(map, layer);
 
   addLayerIfMissing(map, {
     id: CLUSTER_ACTIVITY_RING_LAYER,
@@ -1168,6 +1660,8 @@ function addPublicLayers(map: maplibregl.Map) {
       'circle-blur': 0.08
     }
   });
+
+  for (const layer of clusterRoleBadgeTextLayers()) addLayerIfMissing(map, layer);
 
   addLayerIfMissing(map, {
     id: CLUSTER_COUNT_LAYER,
@@ -1223,22 +1717,11 @@ function addPublicLayers(map: maplibregl.Map) {
         12,
         ['case', ['==', ['get', 'selected'], true], 9, ['==', ['get', 'path'], true], 8.1, ['==', ['get', 'observer'], true], 8.2, ['==', ['get', 'neighbor'], true], 7.2, 7]
       ],
-      'circle-color': ['case', ['==', ['get', 'observer'], true], '#f59e0b', ['get', 'color']],
-      'circle-stroke-color': [
-        'case',
-        ['==', ['get', 'selected'], true],
-        '#ffffff',
-        ['==', ['get', 'path'], true],
-        '#facc15',
-        ['==', ['get', 'observer'], true],
-        '#fef3c7',
-        ['==', ['get', 'neighbor'], true],
-        '#67e8f9',
-        'rgba(248, 250, 252, 0.82)'
-      ],
+      'circle-color': NODE_CIRCLE_COLOR,
+      'circle-stroke-color': NODE_CIRCLE_STROKE_COLOR,
       'circle-stroke-width': ['case', ['==', ['get', 'selected'], true], 2.2, ['==', ['get', 'path'], true], 1.95, ['==', ['get', 'observer'], true], 2, ['==', ['get', 'neighbor'], true], 1.7, 1.15],
-      'circle-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.28, ['==', ['get', 'observer'], true], 0.98, 0.9],
-      'circle-stroke-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.25, ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'observer'], true]], 1, 0.86]
+      'circle-opacity': NODE_CIRCLE_OPACITY,
+      'circle-stroke-opacity': ['case', ['==', ['get', 'dimmed'], true], 0.22, ['any', ['==', ['get', 'selected'], true], ['==', ['get', 'path'], true], ['==', ['get', 'neighbor'], true], ['==', ['get', 'observer'], true]], 1, ['==', ['get', 'staleLevel'], 2], 0.34, ['==', ['get', 'staleLevel'], 1], 0.52, 0.86]
     }
   });
 
@@ -1261,13 +1744,19 @@ function addPublicLayers(map: maplibregl.Map) {
 
 }
 
-function addLayerIfMissing(map: maplibregl.Map, layer: maplibregl.LayerSpecification) {
-  if (!map.getLayer(layer.id)) map.addLayer(layer);
+function addLayerIfMissing(map: maplibregl.Map, layer: maplibregl.LayerSpecification, beforeID?: string) {
+  if (map.getLayer(layer.id)) return;
+  if (beforeID && map.getLayer(beforeID)) map.addLayer(layer, beforeID);
+  else map.addLayer(layer);
+}
+
+function firstTextSymbolLayerID(map: maplibregl.Map): string | undefined {
+  return map.getStyle().layers?.find((layer) => layer.type === 'symbol' && Boolean((layer as any).layout?.['text-field']))?.id;
 }
 
 function mapStyleSourcesReady(map: maplibregl.Map): boolean {
   try {
-    return Boolean(map.getLayer('carto-dark') && map.getSource(NODE_SOURCE) && map.getSource(ROUTE_SOURCE) && map.getSource(CLUSTER_ACTIVITY_SOURCE));
+    return map.isStyleLoaded() === true;
   } catch {
     return false;
   }
@@ -1281,18 +1770,16 @@ function projectNodeLabels(
   meshActivityAtByNodeID: Map<string, number>,
   recentActivityByNodeID: Map<string, NodeActivity>
 ): ScreenNodeLabel[] {
-  const zoom = map.getZoom();
   const { width, height } = mapViewportSize(map);
   if (!isDetailMode(map)) {
     return [];
   }
-  const baseMaxLabels = zoom >= 10.2 ? 48 : zoom >= 9.2 ? 34 : zoom >= 8.4 ? 18 : 8;
-  const maxLabels = Math.min(90, baseMaxLabels + focus.neighbourNodeIDs.size + focus.pathNodeIDs.size + (focus.selectedNodeID ? 1 : 0));
-  const showInactiveLabels = zoom >= 8.8;
+  const maxLabels = 72;
   const margin = 80;
 
   const projected = nodes
     .filter(isMappableNode)
+    .filter((node) => node.isObserver === true)
     .map((node) => {
       const point = projectLngLat(map, node.longitude, node.latitude);
       const activityAt = meshActivityAtByNodeID.get(node.id);
@@ -1302,53 +1789,37 @@ function projectNodeLabels(
       const neighbour = focus.neighbourNodeIDs.has(node.id);
       const path = focus.pathNodeIDs.has(node.id);
       const observer = node.isObserver === true;
-      const distanceKm = focus.neighbourDistanceKmByNodeID.get(node.id);
       const recentActivity = recentActivityByNodeID.get(node.id);
       const frequencyHeat = nodeActivityHeat(recentActivity?.hits.length ?? 0);
       const activityProgress = recentActive ? nodeLabelActivityProgress(ageMs, NODE_LABEL_RECENT_VISIBLE_MS) : 0;
-      const pulseGlow = activityProgress * 0.18;
+      const pulseGlow = activityProgress * 0.05;
       const glow = selected
         ? Math.max(0.58, pulseGlow)
         : path
           ? Math.max(0.46, pulseGlow)
         : neighbour
           ? Math.max(0.3, pulseGlow)
-          : observer
-            ? Math.max(0.52, pulseGlow)
-            : pulseGlow;
-      const ghostOpacity = showInactiveLabels ? (zoom >= 10 ? 0.12 : 0.055) : 0;
-      const activeOpacity = recentActive ? ghostOpacity + 0.2 + activityProgress * 0.14 : ghostOpacity;
-      const observerOpacity = observer ? Math.max(zoom >= 9 ? 0.72 : 0.58, activeOpacity) : activeOpacity;
+          : Math.max(0.32, pulseGlow);
+      const activeOpacity = recentActive ? 0.78 + activityProgress * 0.04 : 0.7;
       const opacity = selected
         ? 1
         : path
           ? 0.9
         : neighbour
           ? 0.88
-          : observer
-            ? observerOpacity
-            : activeOpacity;
-      const heat = Math.max(frequencyHeat * 0.35, pulseGlow * 0.5);
+          : activeOpacity;
       const color = selected
         ? '#ffffff'
         : path
           ? '#facc15'
         : neighbour
           ? '#67e8f9'
-          : observer
-            ? '#fbbf24'
-            : activityProgress > 0.28
-              ? nodeLabelHeatColor(heat)
-              : '#b8c7d9';
-      const age = neighbour && distanceKm !== undefined
-        ? `${nodeLastHeardAgeLabel(activityAt ?? node.lastSeen, now)} / ${formatDistanceKm(distanceKm)}`
-        : nodeLastHeardAgeLabel(activityAt ?? node.lastSeen, now);
+          : '#fbbf24';
       return {
         id: node.id,
-        name: compactNodeLabel(node.label, zoom >= 9.2 ? 20 : 16),
-        age,
+        name: compactNodeLabel(node.label, 20),
         x: point.x,
-        y: point.y + (zoom >= 9 ? 13 : 11),
+        y: point.y + 12,
         selected,
         neighbour,
         path,
@@ -1367,14 +1838,13 @@ function projectNodeLabels(
       };
     });
   const inView = projected.filter((label) => label.x >= -margin && label.x <= width + margin && label.y >= -margin && label.y <= height + margin);
-  const visible = inView.filter((label) => label.opacity > 0 && (label.selected || label.neighbour || label.path || label.observer || label.recentActive || showInactiveLabels));
+  const visible = inView.filter((label) => label.opacity > 0);
   return visible
     .sort((a, b) => b.rank - a.rank)
     .slice(0, maxLabels)
     .map((label) => ({
       id: label.id,
       name: label.name,
-      age: label.age,
       x: label.x,
       y: label.y,
       selected: label.selected,
@@ -1386,20 +1856,6 @@ function projectNodeLabels(
       opacity: label.opacity,
       glow: label.glow
     }));
-}
-
-function nodeLabelHeatColor(value: number): string {
-  const heat = Math.max(0, Math.min(1, value));
-  if (heat > 0.78) return '#f59e0b';
-  if (heat > 0.48) return '#2dd4bf';
-  if (heat > 0.24) return '#38bdf8';
-  return '#94a3b8';
-}
-
-function formatDistanceKm(distance: number): string {
-  if (!Number.isFinite(distance)) return '';
-  if (distance < 10) return `${distance.toFixed(1)} km`;
-  return `${Math.round(distance)} km`;
 }
 
 function projectLngLat(map: maplibregl.Map, lng: number, lat: number): { x: number; y: number } {
@@ -1707,40 +2163,39 @@ function clearClusterActivityGlowStates(map: maplibregl.Map, glows: Map<string, 
   setSourceData(map, CLUSTER_ACTIVITY_SOURCE, emptyCollection());
 }
 
-function addPulseRoutePayloadGlow(map: maplibregl.Map, glows: Map<string, RoutePayloadGlow>, pulse: PublicRoutePulse) {
+function addPulseRoutePayloadGlow(glows: Map<string, RoutePayloadGlow>, pulse: PublicRoutePulse) {
   const now = performance.now();
   const color = payloadVisual(pulse.payloadTypeName).color;
   const routeIDs = new Set(pulse.segments.map((segment) => segment.routeId).filter(Boolean));
   for (const routeID of routeIDs) {
     glows.set(routeID, { color, startedAt: now, expiresAt: now + ROUTE_PAYLOAD_GLOW_MS });
-    safeSetRouteFeatureState(map, routeID, { payloadGlow: 1, payloadGlowColor: color });
   }
 }
 
-function updateRoutePayloadGlowFeatureStates(map: maplibregl.Map, glows: Map<string, RoutePayloadGlow>, now = performance.now()): number {
-  let activeGlowCount = 0;
-  for (const [routeID, glow] of glows.entries()) {
-    const progress = Math.max(0, Math.min(1, (now - glow.startedAt) / ROUTE_PAYLOAD_GLOW_MS));
-    const intensity = Math.pow(1 - progress, 0.72);
-    if (now >= glow.expiresAt || intensity <= 0.01) {
-      safeSetRouteFeatureState(map, routeID, { payloadGlow: 0, payloadGlowColor: glow.color });
-      glows.delete(routeID);
-      continue;
-    }
-    safeSetRouteFeatureState(map, routeID, { payloadGlow: intensity, payloadGlowColor: glow.color });
-    activeGlowCount += 1;
-  }
+function setRoutePayloadGlowSource(
+  map: maplibregl.Map,
+  routes: PublicRoute[],
+  glows: Map<string, RoutePayloadGlow>,
+  selectedRouteID: string | null,
+  focus: NodeFocus,
+  now = performance.now()
+): number {
+  const activeGlowCount = pruneRoutePayloadGlows(glows, now);
+  setSourceData(map, ROUTE_PAYLOAD_GLOW_SOURCE, routePayloadGlowsToGeoJSON(routes, glows, selectedRouteID, focus, now));
   return activeGlowCount;
 }
 
 function startRoutePayloadGlowTimer(
   map: maplibregl.Map,
+  routesRef: MutableRefObject<PublicRoute[]>,
   glowsRef: MutableRefObject<Map<string, RoutePayloadGlow>>,
+  selectedRouteIDRef: MutableRefObject<string | null>,
+  nodeFocusRef: MutableRefObject<NodeFocus>,
   timerRef: MutableRefObject<number | null>
 ) {
   if (timerRef.current !== null) return;
   timerRef.current = window.setInterval(() => {
-    const activeGlowCount = updateRoutePayloadGlowFeatureStates(map, glowsRef.current);
+    const activeGlowCount = setRoutePayloadGlowSource(map, routesRef.current, glowsRef.current, selectedRouteIDRef.current, nodeFocusRef.current);
     if (activeGlowCount === 0) stopRoutePayloadGlowTimer(timerRef);
   }, ROUTE_PAYLOAD_GLOW_UPDATE_MS);
 }
@@ -1752,10 +2207,8 @@ function stopRoutePayloadGlowTimer(timerRef: MutableRefObject<number | null>) {
 }
 
 function clearRoutePayloadGlowStates(map: maplibregl.Map, glows: Map<string, RoutePayloadGlow>) {
-  for (const [routeID, glow] of glows.entries()) {
-    safeSetRouteFeatureState(map, routeID, { payloadGlow: 0, payloadGlowColor: glow.color });
-  }
   glows.clear();
+  setSourceData(map, ROUTE_PAYLOAD_GLOW_SOURCE, emptyCollection());
 }
 
 function addPulseNodeActivity(map: maplibregl.Map, activities: Map<string, NodeActivity>, pulse: PublicRoutePulse) {
@@ -1870,15 +2323,6 @@ function safeSetNodeFeatureState(map: maplibregl.Map, nodeID: string, state: { g
   }
 }
 
-function safeSetRouteFeatureState(map: maplibregl.Map, routeID: string, state: { payloadGlow: number; payloadGlowColor: string }) {
-  if (!map.getSource(ROUTE_SOURCE)) return;
-  try {
-    map.setFeatureState({ source: ROUTE_SOURCE, id: routeID }, state);
-  } catch {
-    // Source data can be swapped by state refreshes while websocket events arrive.
-  }
-}
-
 function notifyAfterMapSettles(map: maplibregl.Map, callback: () => void) {
   let called = false;
   const finish = () => {
@@ -1914,6 +2358,7 @@ function markPositionedNodesReady(
 function bindLayerEvents(
   map: maplibregl.Map,
   nodesRef: MutableRefObject<PublicNode[]>,
+  nodeMeshActivityAtRef: MutableRefObject<Map<string, number>>,
   selectedNodeRef: MutableRefObject<(nodeID: string) => void>,
   plotModeRef: MutableRefObject<'off' | 'node' | 'area'>,
   plotNodePickRef: MutableRefObject<(nodeID: string) => void>,
@@ -1945,7 +2390,7 @@ function bindLayerEvents(
     const y = belowY + toastHeight < container.clientHeight ? belowY : Math.max(12, event.point.y - toastHeight - 14);
     setHoveredNode((current) => {
       if (current?.node.id === node.id && Math.abs(current.x - x) < 3 && Math.abs(current.y - y) < 3) return current;
-      return { node, x, y };
+      return { node, x, y, lastHeardAt: nodeEffectiveActivityAt(node, nodeMeshActivityAtRef.current.get(node.id)) };
     });
   };
   map.on('click', async (event) => {
@@ -1992,7 +2437,7 @@ function bindLayerEvents(
 }
 
 function NodeHoverToast({ hovered, now }: { hovered: HoveredNodeToast; now: number }) {
-  const { node, x, y } = hovered;
+  const { node, x, y, lastHeardAt } = hovered;
   const regions = node.iatasHeardIn.length > 0 ? node.iatasHeardIn.slice(0, 4).join(', ') : 'No region';
   return (
     <div className="node-hover-toast" style={{ left: x, top: y }}>
@@ -2001,7 +2446,7 @@ function NodeHoverToast({ hovered, now }: { hovered: HoveredNodeToast; now: numb
       <dl>
         <div>
           <dt>Last heard</dt>
-          <dd>{nodeLastHeardAgeLabel(node.lastSeen, now).replace(/^last /, '')}</dd>
+          <dd>{nodeLastHeardAgeLabel(lastHeardAt, now).replace(/^last /, '')}</dd>
         </div>
         <div>
           <dt>Packets</dt>
@@ -2047,6 +2492,7 @@ function nodeFeatureProperties(
   labelClock: number,
   meshActivityAtByNodeID: Map<string, number>
 ) {
+  const meshActivityAt = meshActivityAtByNodeID.get(node.id);
   const selected = node.id === focus.selectedNodeID;
   const neighbor = focus.neighbourNodeIDs.has(node.id);
   const path = focus.pathNodeIDs.has(node.id);
@@ -2064,7 +2510,8 @@ function nodeFeatureProperties(
     dimmed: focusActive && !selected && !neighbor && !path,
     neighborDistanceKm: focus.neighbourDistanceKmByNodeID.get(node.id) ?? null,
     recentActive: recentNodeActivity(node.id, labelClock, meshActivityAtByNodeID),
-    observer: node.isObserver === true
+    observer: node.isObserver === true,
+    staleLevel: nodeStaleLevel(node, labelClock, meshActivityAt)
   };
 }
 
@@ -2073,41 +2520,27 @@ function recentNodeActivity(nodeID: string, now: number, meshActivityAtByNodeID:
   return Number.isFinite(activityAt) && activityAt !== undefined && now - activityAt <= NODE_ACTIVE_LABEL_VISIBLE_MS;
 }
 
-function routesToGeoJSON(
+function updateRouteRendering(
+  map: maplibregl.Map,
   routes: PublicRoute[],
   selectedRouteID: string | null,
-  focus: NodeFocus
-): FeatureCollection {
-  const hasFocusedRoute = Boolean(selectedRouteID || focus.selectedNodeID || focus.pathRouteIDs.size > 0);
-  return {
-    type: 'FeatureCollection',
-    features: routes
-      .filter((route) => isMappableEndpoint(route.from) && isMappableEndpoint(route.to))
-      .map((route) => {
-        const selected = route.id === selectedRouteID;
-        const connected = focus.connectedRouteIDs.has(route.id);
-        const path = focus.pathRouteIDs.has(route.id);
-        return {
-          type: 'Feature',
-          id: route.id,
-          properties: {
-            id: route.id,
-            color: routeColors[Math.max(0, Math.min(4, route.frequencyBucket))],
-            selected,
-            path,
-            connected,
-            dimmed: hasFocusedRoute && !selected && !path && !connected
-          },
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [route.from.lng, route.from.lat],
-              [route.to.lng, route.to.lat]
-            ]
-          }
-        };
-      })
-  };
+  focus: NodeFocus,
+  routeSignatureRef: MutableRefObject<string>,
+  colorSignatureRef: MutableRefObject<string>,
+  animatorRef: MutableRefObject<PacketAnimator | null>,
+  force = false
+) {
+  const nextRouteSignature = routeSourceSignature(routes, selectedRouteID, focus);
+  if (force || nextRouteSignature !== routeSignatureRef.current) {
+    routeSignatureRef.current = nextRouteSignature;
+    setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routes, selectedRouteID, focus));
+  }
+
+  const nextColorSignature = routeColorSignature(routes);
+  if (force || nextColorSignature !== colorSignatureRef.current) {
+    colorSignatureRef.current = nextColorSignature;
+    animatorRef.current?.setRouteColors(new Map(routes.map((route) => [route.id, routeColors[Math.max(0, Math.min(4, route.frequencyBucket))]])));
+  }
 }
 
 function setSourceData(map: maplibregl.Map, sourceID: string, data: FeatureCollection) {
@@ -2117,7 +2550,7 @@ function setSourceData(map: maplibregl.Map, sourceID: string, data: FeatureColle
 
 function mapViewFromMap(map: maplibregl.Map): MapViewState {
   const center = map.getCenter();
-  return { lat: center.lat, lng: center.lng, z: map.getZoom() };
+  return { lat: center.lat, lng: center.lng, z: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() };
 }
 
 function fitToNodes(map: maplibregl.Map, nodes: PublicNode[], duration: number) {
@@ -2232,12 +2665,25 @@ function addGeneratedNodeIcons(map: maplibregl.Map) {
     ['node-companion', '#3b82f6', 'triangle'],
     ['node-room_server', '#a855f7', 'square'],
     ['node-sensor', '#65a30d', 'pentagon'],
-    ['node-unknown', '#64748b', 'circle'],
-    ['observer-node', '#f59e0b', 'observer']
+    ['node-unknown', '#64748b', 'circle']
   ] as const;
   for (const [name, color, shape] of specs) {
     if (!map.hasImage(name)) map.addImage(name, createIcon(color, shape), { pixelRatio: 2 });
   }
+  addMapImageFromURL(map, 'observer-node', routeAssetIcons.observer, createIcon('#f59e0b', 'observer'));
+}
+
+function addMapImageFromURL(map: maplibregl.Map, name: string, url: string, fallback: ImageData) {
+  if (map.hasImage(name)) return;
+  const image = new Image();
+  image.decoding = 'async';
+  image.onload = () => {
+    if (!map.hasImage(name)) map.addImage(name, image, { pixelRatio: 2 });
+  };
+  image.onerror = () => {
+    if (!map.hasImage(name)) map.addImage(name, fallback, { pixelRatio: 2 });
+  };
+  image.src = url;
 }
 
 function createIcon(color: string, shape: 'diamond' | 'triangle' | 'square' | 'pentagon' | 'circle' | 'observer') {
@@ -2316,6 +2762,18 @@ function nodeRoleColor(role: string) {
   if (role === 'room_server') return '#a855f7';
   if (role === 'sensor') return '#65a30d';
   return '#64748b';
+}
+
+function envURL(key: string, fallback: string): string {
+  const value = (import.meta.env[key] as string | undefined)?.trim();
+  return value || fallback;
+}
+
+function envFloat(key: string, fallback: number): number {
+  const value = (import.meta.env[key] as string | undefined)?.trim();
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function emptyCollection(): FeatureCollection {

@@ -7,19 +7,19 @@ export const PACKET_SINGLE_HOP_DURATION_MS = 2100;
 export const PACKET_MAX_TRAVEL_DURATION_MS = 3200;
 export const PACKET_AFTERGLOW_MS = 1200;
 export const ROUTE_TRACE_WINDOW_MS = 15 * 60_000;
-export const OBSERVER_AURA_WINDOW_MS = 90_000;
-export const OBSERVER_BURST_DURATION_MS = 2600;
-export const OBSERVER_BURST_AFTERGLOW_MS = 2200;
+export const OBSERVER_AURA_WINDOW_MS = 150_000;
+export const OBSERVER_BURST_DURATION_MS = 5200;
+export const OBSERVER_BURST_AFTERGLOW_MS = 3600;
 export const ROUTE_RESIDUE_ALPHA_CAP = 0.12;
-export const OBSERVER_AURA_ALPHA_CAP = 0.07;
+export const OBSERVER_AURA_ALPHA_CAP = 0.055;
 export const CANVAS_MAX_DPR = 1.5;
 export const RESIDUE_IDLE_FRAME_INTERVAL_MS = 90;
 export const MASK_CACHE_INTERVAL_MS = 140;
 export const MAX_TRACE_AURA_ROUTES = 180;
 export const MAX_OBSERVER_AURA_LOCATIONS = 120;
-export const MAX_ACTIVE_OBSERVER_BURSTS = 36;
-export const MAX_OBSERVER_BURSTS_PER_LOCATION = 2;
-export const OBSERVER_BURST_LOCATION_INTERVAL_MS = 750;
+export const MAX_ACTIVE_OBSERVER_BURSTS = 24;
+export const MAX_OBSERVER_BURSTS_PER_LOCATION = 1;
+export const OBSERVER_BURST_LOCATION_INTERVAL_MS = 4200;
 
 const RESIDUE_PRUNE_INTERVAL_MS = 1000;
 
@@ -223,9 +223,6 @@ export class PacketAnimator {
     const now = performance.now();
     this.observerBursts = this.observerBursts.filter(({ started, duration, afterglowDuration }) => now - started < duration + afterglowDuration);
     const locationKey = observerBurstKey(burst);
-    const activeForLocation = this.observerBursts.filter((active) => observerBurstKey(active.burst) === locationKey).length;
-    if (!observerBurstAllowed(this.observerBursts.length, activeForLocation, this.observerBurstLastAtByLocation.get(locationKey), now)) return;
-    this.observerBurstLastAtByLocation.set(locationKey, now);
     this.observerBurstHits.push({
       key: locationKey,
       color: payloadVisual(burst.payloadTypeName).color,
@@ -234,6 +231,16 @@ export class PacketAnimator {
     });
     this.observerBurstHits = this.observerBurstHits.slice(-4000);
     this.observerAggregatesDirty = true;
+    const activeForLocation = this.observerBursts.filter((active) => observerBurstKey(active.burst) === locationKey).length;
+    if (activeForLocation > 0) {
+      this.requestFrame();
+      return;
+    }
+    if (!observerBurstAllowed(this.observerBursts.length, activeForLocation, this.observerBurstLastAtByLocation.get(locationKey), now)) {
+      this.requestFrame();
+      return;
+    }
+    this.observerBurstLastAtByLocation.set(locationKey, now);
     this.observerBursts.push({
       burst,
       started: now,
@@ -394,7 +401,7 @@ export class PacketAnimator {
     this.ctx.lineJoin = 'round';
     for (const trace of aggregates) {
       const age = now - trace.latestAt;
-      const fade = Math.max(0, 1 - age / OBSERVER_AURA_WINDOW_MS);
+      const fade = Math.max(0, 1 - age / ROUTE_TRACE_WINDOW_MS);
       const intensity = Math.min(1, Math.log1p(trace.count) / Math.log1p(18));
       const from = this.map.project([trace.from.lng, trace.from.lat]);
       const to = this.map.project([trace.to.lng, trace.to.lat]);
@@ -446,7 +453,7 @@ export class PacketAnimator {
       const fade = Math.max(0, 1 - age / ROUTE_TRACE_WINDOW_MS);
       const intensity = Math.min(1, Math.log1p(burst.count) / Math.log1p(24));
       const point = this.map.project([burst.location.lng, burst.location.lat]);
-      const radius = 13 + intensity * 34;
+      const radius = 15 + intensity * 38;
       const alpha = observerAuraAlpha(burst.count, fade);
       const gradient = this.ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
       gradient.addColorStop(0, colorWithAlpha(burst.color, alpha));
@@ -460,10 +467,10 @@ export class PacketAnimator {
       this.ctx.fill();
 
       if (intensity > 0.18) {
-        this.ctx.globalAlpha = alpha * 0.8;
+        this.ctx.globalAlpha = alpha * 0.72;
         this.ctx.strokeStyle = burst.color;
-        this.ctx.lineWidth = 0.8 + intensity * 0.9;
-        this.ctx.shadowBlur = 12 + intensity * 16;
+        this.ctx.lineWidth = 0.7 + intensity * 0.8;
+        this.ctx.shadowBlur = 10 + intensity * 12;
         this.ctx.shadowColor = burst.color;
         this.ctx.beginPath();
         this.ctx.arc(point.x, point.y, 8 + intensity * 11, 0, Math.PI * 2);
@@ -479,20 +486,20 @@ export class PacketAnimator {
     const afterglowProgress = Math.max(0, Math.min(1, (elapsed - active.duration) / active.afterglowDuration));
     const color = payloadVisual(active.burst.payloadTypeName).color;
     const point = this.map.project([active.burst.location.lng, active.burst.location.lat]);
-    const alpha = elapsed > active.duration ? 0.28 * (1 - afterglowProgress) : 0.58;
+    const alpha = elapsed > active.duration ? 0.14 * (1 - afterglowProgress) : 0.34;
     if (alpha <= 0.01) return;
 
     this.ctx.save();
     const pulse = Math.sin(progress * Math.PI);
-    const electric = 0.72 + pulse * 0.38;
-    const outerRadius = 13 + progress * 52;
-    const midRadius = 7 + progress * 32;
-    const coreRadius = 4 + pulse * 4;
+    const electric = 0.58 + pulse * 0.24;
+    const outerRadius = 11 + progress * 34;
+    const midRadius = 6 + progress * 21;
+    const coreRadius = 3 + pulse * 2.4;
 
     const glow = this.ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, outerRadius);
-    glow.addColorStop(0, colorWithAlpha('#ffffff', 0.34 * alpha));
-    glow.addColorStop(0.22, colorWithAlpha(color, 0.34 * alpha));
-    glow.addColorStop(0.62, colorWithAlpha(color, 0.12 * alpha));
+    glow.addColorStop(0, colorWithAlpha('#ffffff', 0.2 * alpha));
+    glow.addColorStop(0.24, colorWithAlpha(color, 0.28 * alpha));
+    glow.addColorStop(0.66, colorWithAlpha(color, 0.1 * alpha));
     glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
     this.ctx.globalAlpha = electric;
     this.ctx.fillStyle = glow;
@@ -500,23 +507,23 @@ export class PacketAnimator {
     this.ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
     this.ctx.fill();
 
-    this.ctx.globalAlpha = alpha * 0.72;
+    this.ctx.globalAlpha = alpha * 0.58;
     this.ctx.strokeStyle = color;
-    this.ctx.lineWidth = 1.9;
-    this.ctx.shadowBlur = 22;
+    this.ctx.lineWidth = 1.35;
+    this.ctx.shadowBlur = 14;
     this.ctx.shadowColor = color;
     this.ctx.beginPath();
     this.ctx.arc(point.x, point.y, midRadius, 0, Math.PI * 2);
     this.ctx.stroke();
-    this.ctx.globalAlpha = alpha * 0.46;
+    this.ctx.globalAlpha = alpha * 0.28;
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
     this.ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
     this.ctx.stroke();
-    this.ctx.globalAlpha = alpha * (0.45 + pulse * 0.36);
+    this.ctx.globalAlpha = alpha * (0.34 + pulse * 0.26);
     this.ctx.fillStyle = '#ffffff';
-    this.ctx.shadowBlur = 18 + pulse * 18;
+    this.ctx.shadowBlur = 10 + pulse * 10;
     this.ctx.beginPath();
     this.ctx.arc(point.x, point.y, coreRadius, 0, Math.PI * 2);
     this.ctx.fill();
@@ -868,7 +875,7 @@ export function routeResidueAlpha(count: number, fade = 1): number {
 export function observerAuraAlpha(count: number, fade = 1): number {
   if (count <= 0) return 0;
   const intensity = Math.min(1, Math.log1p(Math.max(0, count)) / Math.log1p(24));
-  return Math.min(OBSERVER_AURA_ALPHA_CAP, (0.036 + intensity * 0.164) * clamp01(fade));
+  return Math.min(OBSERVER_AURA_ALPHA_CAP, (0.026 + intensity * 0.108) * clamp01(fade));
 }
 
 function routeColorFromID(id: string): string {

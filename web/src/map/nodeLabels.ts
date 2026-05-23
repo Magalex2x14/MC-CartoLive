@@ -6,9 +6,11 @@ export const NODE_ACTIVITY_WINDOW_MS = 60_000;
 export const NODE_ACTIVITY_GLOW_MS = 6_500;
 export const NODE_ACTIVITY_UPDATE_MS = 250;
 export const NODE_ACTIVITY_HOT_COUNT = 30;
+export const NODE_STALE_GREY_MS = 30 * 60_000;
+export const NODE_STALE_DARK_GREY_MS = 60 * 60_000;
 
 export function nodeMapLabel(node: PublicNode, now: number, meshActivityAt?: number): string {
-  return `${compactNodeLabel(node.label)}\n${nodeLastHeardAgeLabel(meshActivityAt ?? node.lastSeen, now)}`;
+  return compactNodeLabel(node.label);
 }
 
 export function compactNodeLabel(label: string, maxChars = NODE_LABEL_MAX_CHARS): string {
@@ -47,4 +49,17 @@ export function nodeLabelActivityProgress(ageMs: number, visibleWindowMs: number
   if (!Number.isFinite(ageMs) || ageMs < 0 || visibleWindowMs <= 0) return 0;
   const remaining = Math.max(0, Math.min(1, 1 - ageMs / visibleWindowMs));
   return Math.pow(remaining, 0.68);
+}
+
+export function nodeEffectiveActivityAt(node: PublicNode, meshActivityAt?: number): number {
+  return Number.isFinite(meshActivityAt) && meshActivityAt !== undefined ? meshActivityAt : node.lastSeen;
+}
+
+export function nodeStaleLevel(node: PublicNode, now: number, meshActivityAt?: number): 0 | 1 | 2 {
+  const activityAt = nodeEffectiveActivityAt(node, meshActivityAt);
+  if (!Number.isFinite(activityAt) || activityAt <= 0) return 2;
+  const ageMs = Math.max(0, now - activityAt);
+  if (ageMs >= NODE_STALE_DARK_GREY_MS) return 2;
+  if (ageMs >= NODE_STALE_GREY_MS) return 1;
+  return 0;
 }

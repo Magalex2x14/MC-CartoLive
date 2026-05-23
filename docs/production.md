@@ -97,14 +97,17 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 1.3.1 exposes the app version/build in the top project bar. CI builds use
+- Version 1.4.0 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback.
 - `PUBLIC_BASE_URL` must match the public browser origin so WebSocket origin checks pass.
 - `PUBLIC_IATAS` should stay restricted to supported Canada IATA region codes.
 - Keep `PUBLIC_MODE=true` on public hosts.
 - The compose file mounts `./data` read/write and `./examples` read-only.
 - Container logs are rotated by Docker Compose to avoid unbounded local log growth.
-- Health checks use `/healthz`, which verifies the app can read SQLite stats.
+- Health checks use `/healthz`, which reads cached public state when available so SQLite ingest pressure does not make Docker health checks flap.
+- PacketTV, route glow, cluster role badges, hover-only ordinary labels, and
+  the Original/OpenFreeMap map toggle are frontend-only features and do not
+  require public API schema changes.
 
 ## Troubleshooting
 

@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   NODE_ACTIVITY_GLOW_MS,
+  NODE_STALE_DARK_GREY_MS,
+  NODE_STALE_GREY_MS,
   nodeActivityGlow,
   nodeActivityHeat,
   nodeLabelActivityProgress,
   compactNodeLabel,
+  nodeEffectiveActivityAt,
   nodeLastHeardAgeLabel,
-  nodeMapLabel
+  nodeMapLabel,
+  nodeStaleLevel
 } from './nodeLabels';
 import type { PublicNode } from '../types';
 
@@ -27,7 +31,7 @@ describe('map node labels', () => {
     expect(nodeLastHeardAgeLabel(0, now)).toBe('last unknown');
   });
 
-  it('builds a two-line label with node name and last-heard timer', () => {
+  it('builds a map label with only the node name', () => {
     const node = {
       id: 'n1',
       label: 'Downtown Repeater Alpha',
@@ -40,8 +44,8 @@ describe('map node labels', () => {
       activityCount: 10
     } satisfies PublicNode;
 
-    expect(nodeMapLabel(node, 1_700_000_000_000)).toBe('Downtown Repeat...\nlast 19s');
-    expect(nodeMapLabel(node, 1_700_000_000_000, 1_700_000_000_000 - 7_000)).toBe('Downtown Repeat...\nlast 7s');
+    expect(nodeMapLabel(node, 1_700_000_000_000)).toBe('Downtown Repeat...');
+    expect(nodeMapLabel(node, 1_700_000_000_000, 1_700_000_000_000 - 7_000)).toBe('Downtown Repeat...');
   });
 
   it('maps recent mesh activity to fading heat glow values', () => {
@@ -61,5 +65,26 @@ describe('map node labels', () => {
     expect(nodeLabelActivityProgress(windowMs / 2, windowMs)).toBeGreaterThan(0.6);
     expect(nodeLabelActivityProgress(windowMs, windowMs)).toBe(0);
     expect(nodeLabelActivityProgress(Number.POSITIVE_INFINITY, windowMs)).toBe(0);
+  });
+
+  it('classifies stale nodes from mesh activity with lastSeen fallback', () => {
+    const now = 1_700_000_000_000;
+    const node = {
+      id: 'n1',
+      label: 'Node',
+      role: 'repeater',
+      latitude: 43.65,
+      longitude: -79.38,
+      firstSeen: 1,
+      lastSeen: now - NODE_STALE_GREY_MS - 1,
+      iatasHeardIn: ['YYZ'],
+      activityCount: 10
+    } satisfies PublicNode;
+
+    expect(nodeEffectiveActivityAt(node)).toBe(node.lastSeen);
+    expect(nodeStaleLevel({ ...node, lastSeen: now - NODE_STALE_GREY_MS + 1 }, now)).toBe(0);
+    expect(nodeStaleLevel(node, now)).toBe(1);
+    expect(nodeStaleLevel({ ...node, lastSeen: now - NODE_STALE_DARK_GREY_MS }, now)).toBe(2);
+    expect(nodeStaleLevel(node, now, now - 1000)).toBe(0);
   });
 });

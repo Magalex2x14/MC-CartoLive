@@ -78,17 +78,17 @@ describe('packet animation timing', () => {
     expect(MASK_CACHE_INTERVAL_MS).toBeGreaterThanOrEqual(100);
     expect(MAX_TRACE_AURA_ROUTES).toBeLessThanOrEqual(200);
     expect(MAX_OBSERVER_AURA_LOCATIONS).toBeLessThanOrEqual(140);
-    expect(MAX_ACTIVE_OBSERVER_BURSTS).toBe(36);
-    expect(MAX_OBSERVER_BURSTS_PER_LOCATION).toBe(2);
-    expect(OBSERVER_AURA_WINDOW_MS).toBe(90_000);
+    expect(MAX_ACTIVE_OBSERVER_BURSTS).toBe(24);
+    expect(MAX_OBSERVER_BURSTS_PER_LOCATION).toBe(1);
+    expect(OBSERVER_AURA_WINDOW_MS).toBe(150_000);
   });
 
   it('caps observer burst pressure by total, location, and interval', () => {
-    expect(observerBurstAllowed(35, 1, 1000, 2000)).toBe(true);
+    expect(observerBurstAllowed(MAX_ACTIVE_OBSERVER_BURSTS - 1, 0, undefined, 2000)).toBe(true);
     expect(observerBurstAllowed(MAX_ACTIVE_OBSERVER_BURSTS, 0, undefined, 2000)).toBe(false);
     expect(observerBurstAllowed(1, MAX_OBSERVER_BURSTS_PER_LOCATION, undefined, 2000)).toBe(false);
-    expect(observerBurstAllowed(1, 1, 2000 - OBSERVER_BURST_LOCATION_INTERVAL_MS + 1, 2000)).toBe(false);
-    expect(observerBurstAllowed(1, 1, 2000 - OBSERVER_BURST_LOCATION_INTERVAL_MS, 2000)).toBe(true);
+    expect(observerBurstAllowed(1, 0, 2000 - OBSERVER_BURST_LOCATION_INTERVAL_MS + 1, 2000)).toBe(false);
+    expect(observerBurstAllowed(1, 0, 2000 - OBSERVER_BURST_LOCATION_INTERVAL_MS, 2000)).toBe(true);
     expect(observerBurstKey({ location: { label: 'Toronto', iata: 'YYZ', lat: 43.65322, lng: -79.38318 } })).toBe('Toronto|YYZ|43.6532|-79.3832');
   });
 

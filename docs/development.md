@@ -9,11 +9,34 @@ docker compose up --build
 
 Open `http://localhost:39476`.
 
+The default public dashboard uses the original MapLibre/CARTO dark map on this
+same port. Use the in-app map base toggle to switch to the OpenFreeMap 3D view
+without starting a second service.
+
 The public example starts in fixture mode. To use live MQTT, edit `.env`, set
 `MQTT_ENABLED=true`, clear `FIXTURE_REPLAY_PATH`, and add private MQTT
 credentials.
 
 Do not commit `.env`, `data/config.yaml`, live databases, or WAL/SHM files.
+
+## Optional Isolated OpenFreeMap 3D Docker
+
+The main app already includes OpenFreeMap as a runtime toggle. The separate
+OpenFreeMap development stack is only for isolating tile/style endpoint changes
+or running a second test container beside the main one:
+
+```bash
+docker compose -f docker-compose.openfreemap.yml up --build
+```
+
+Open `http://localhost:39477`.
+
+The stack reuses private MQTT credentials from `.env`, overrides
+`PUBLIC_BASE_URL` for the dev port, and stores its database under
+`data-openfreemap/`. The bundled default is a dark OpenFreeMap 3D style backed
+by hosted OpenFreeMap vector tiles and MapLibre DEM terrain/hillshade; override
+the `VITE_OPENFREEMAP_*` and `VITE_TERRAIN_*` values in `.env` if you later
+point the renderer at local/self-hosted tiles.
 
 ## Credential-Free Fixture Run
 
@@ -76,9 +99,10 @@ project bar. Docker and CI builds also pick up `GITHUB_SHA` when present.
 
 ## Mobile UI
 
-The mobile layout keeps the map, route motion, packet comets, Live Follow, and
-route-copy tools as the primary experience. Secondary panels, status toasts, the
-legend, and busy-path lists are hidden by default at small viewport widths.
+The mobile layout keeps the map, route motion, packet comets, Live Follow,
+PacketTV, and route-copy tools as the primary experience. Secondary panels,
+status toasts, the legend, and busy-path lists are hidden by default at small
+viewport widths.
 
 ## Node Connectivity UI
 
@@ -99,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v1.3.1 route-copy and phonebook checks:
+For v1.4.0 route-copy, phonebook, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -108,6 +132,17 @@ For v1.3.1 route-copy and phonebook checks:
   The default should never put maximum-hop routes at the top.
 - The copy button should use `pathHash3` route endpoint fields only; full public
   keys must never be exposed.
+- Leave the map open at a dense detail zoom and confirm packet counters can
+  update without route lines stuttering or route-hover glow work returning.
+- Watch a bursty live period or reconnect the websocket and confirm packet
+  counters/comets tick through the burst instead of landing in one frame.
+- Below zoom 7.08, confirm clusters are the only node/route visual and cluster
+  role badges glow subtly on fresh activity.
+- At zoom 7.08 and above, confirm nodes and routes appear together, ordinary
+  node labels appear only on hover/details, observer labels persist without
+  last-seen text, and idle routes stay subdued until a packet comet uses them.
+- Open PacketTV and confirm it shows long live routed packets with endpoint
+  labels, hop count, distance, and packet color without moving the main map.
 - Click Plot routes, choose two node endpoints, and confirm the shortest public
   route path glows with a closeable route toast.
 - Switch to map-square mode, click two map corners, and confirm all public

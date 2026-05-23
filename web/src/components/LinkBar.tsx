@@ -1,5 +1,6 @@
 import { ExternalLink, Github } from 'lucide-react';
 import { appVersion, buildNumber } from '../buildInfo';
+import { routeAssetIcons } from '../assets/routes/assets';
 
 const GITHUB_URL = 'https://github.com/n30nex/MC-CartoLive';
 const MESHCORE_CANADA_URL = 'https://meshcore.ca/';
@@ -8,7 +9,7 @@ export default function LinkBar() {
   return (
     <nav className="link-bar" aria-label="Project links">
       <a className="link-bar-brand" href={MESHCORE_CANADA_URL} target="_blank" rel="noreferrer" title="Open MeshCore Canada">
-        <img src="/meshcore-canada-favicon.png" alt="" aria-hidden="true" />
+        <img src={routeAssetIcons.app} alt="" aria-hidden="true" />
         <span>MeshCore Canada</span>
       </a>
       <div className="link-bar-build" aria-label={`MC-CartoLive version ${appVersion}, build ${buildNumber}`}>

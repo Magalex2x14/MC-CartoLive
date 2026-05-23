@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LocateFixed, Pause, Play, RadioTower, RotateCcw, Search, Share2, X } from 'lucide-react';
+import { Layers, LocateFixed, Pause, Play, RadioTower, RotateCcw, Search, Share2, X } from 'lucide-react';
 import { fetchPublicState } from './api';
 import { connectPublicSocket } from './ws';
 import {
@@ -12,13 +12,15 @@ import {
   summarizeRouteActivity,
   type AppState
 } from './state';
-import CanadaMap, { type MapAction } from './map/CanadaMap';
+import CanadaMap, { type MapAction, type MapBaseMode } from './map/CanadaMap';
 import HotRoutes from './components/HotRoutes';
 import Legend from './components/Legend';
 import LinkBar from './components/LinkBar';
 import PlotRoutesPanel, { type PlotMode, type PlotResult } from './components/PlotRoutesPanel';
+import PacketTV from './components/PacketTV';
 import SelectionDrawer from './components/SelectionDrawer';
 import StatusBar from './components/StatusBar';
+import { nextLiveEnvelopeDelayMs, takeDueLiveEnvelopes } from './livePacing';
 import {
   buildConnectivityGraph,
   directConnectivity,
@@ -35,6 +37,7 @@ import {
   type SelectionState
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
+import { selectPacketTvPulse } from './packetTv';
 import type { PublicActivity, PublicLiveEnvelope } from './types';
 
 export default function App() {
@@ -43,6 +46,8 @@ export default function App() {
   const [socketStatus, setSocketStatus] = useState('starting');
   const [paused, setPaused] = useState(false);
   const [followTraffic, setFollowTraffic] = useState(false);
+  const [packetTvOpen, setPacketTvOpen] = useState(false);
+  const [mapBaseMode, setMapBaseMode] = useState<MapBaseMode>('original');
   const [query, setQuery] = useState(() => sharedViewRef.current?.q ?? '');
   const [clearToken, setClearToken] = useState(0);
   const [mapAction, setMapAction] = useState<MapAction>(null);
@@ -56,7 +61,7 @@ export default function App() {
   const [pathCopyToast, setPathCopyToast] = useState<string | null>(null);
   const [mapView, setMapView] = useState<MapViewState | null>(() => {
     const shared = sharedViewRef.current;
-    return shared ? { lat: shared.lat, lng: shared.lng, z: shared.z } : null;
+    return shared ? { lat: shared.lat, lng: shared.lng, z: shared.z, pitch: shared.pitch, bearing: shared.bearing } : null;
   });
   const [initialLoadGateOpen, setInitialLoadGateOpen] = useState(true);
   const [shareToast, setShareToast] = useState<string | null>(null);
@@ -66,7 +71,7 @@ export default function App() {
   const [nodeLoadFailed, setNodeLoadFailed] = useState(false);
   const actionTokenRef = useRef(0);
   const pendingMessagesRef = useRef<PublicLiveEnvelope[]>([]);
-  const flushMessagesRafRef = useRef<number | null>(null);
+  const flushMessagesTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (initialNodesReceived) return;
@@ -101,19 +106,26 @@ export default function App() {
   useEffect(() => {
     let openedOnce = false;
     let active = true;
+    const scheduleMessagesFlush = () => {
+      if (flushMessagesTimerRef.current !== null) return;
+      const delay = nextLiveEnvelopeDelayMs(pendingMessagesRef.current, Date.now());
+      if (delay === null) return;
+      flushMessagesTimerRef.current = window.setTimeout(flushMessages, delay);
+    };
     const flushMessages = () => {
-      flushMessagesRafRef.current = null;
+      flushMessagesTimerRef.current = null;
       if (!active || pendingMessagesRef.current.length === 0) return;
-      const messages = pendingMessagesRef.current
-        .slice()
-        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || (a.displayAt ?? 0) - (b.displayAt ?? 0));
-      pendingMessagesRef.current = [];
-      setState((current) => messages.reduce((next, message) => applyPublicEnvelope(next, message), current));
+      const { due, pending } = takeDueLiveEnvelopes(pendingMessagesRef.current, Date.now());
+      pendingMessagesRef.current = pending;
+      if (due.length > 0) {
+        setState((current) => due.reduce((next, message) => applyPublicEnvelope(next, message), current));
+      }
+      if (pendingMessagesRef.current.length > 0) scheduleMessagesFlush();
     };
     const enqueueMessage = (message: PublicLiveEnvelope) => {
+      if (message.type !== 'event') return;
       pendingMessagesRef.current.push(message);
-      if (flushMessagesRafRef.current !== null) return;
-      flushMessagesRafRef.current = window.requestAnimationFrame(flushMessages);
+      scheduleMessagesFlush();
     };
     const refreshState = () => {
       fetchPublicState().then((liveState) => {
@@ -132,9 +144,9 @@ export default function App() {
     const socket = connectPublicSocket((message) => {
       if (message.type === 'lagged') {
         pendingMessagesRef.current = [];
-        if (flushMessagesRafRef.current !== null) {
-          window.cancelAnimationFrame(flushMessagesRafRef.current);
-          flushMessagesRafRef.current = null;
+        if (flushMessagesTimerRef.current !== null) {
+          window.clearTimeout(flushMessagesTimerRef.current);
+          flushMessagesTimerRef.current = null;
         }
         refreshState();
         return;
@@ -146,8 +158,8 @@ export default function App() {
     });
     return () => {
       active = false;
-      if (flushMessagesRafRef.current !== null) window.cancelAnimationFrame(flushMessagesRafRef.current);
-      flushMessagesRafRef.current = null;
+      if (flushMessagesTimerRef.current !== null) window.clearTimeout(flushMessagesTimerRef.current);
+      flushMessagesTimerRef.current = null;
       pendingMessagesRef.current = [];
       socket.close();
     };
@@ -234,6 +246,7 @@ export default function App() {
     () => messageHistoryForNode(selectedNode, visibleRoutes, state.activity),
     [selectedNode, state.activity, visibleRoutes]
   );
+  const packetTvCandidate = useMemo(() => selectPacketTvPulse(state.pulses, liveClock), [state.pulses, liveClock]);
 
   const activityClock = Math.max(liveClock, state.serverTime, state.activity[0]?.heardAt ?? 0, state.routeTraces.at(-1)?.heardAt ?? 0);
   const routeActivityByID = useMemo(() => summarizeRouteActivity(state.routeTraces, activityClock), [state.routeTraces, activityClock]);
@@ -396,6 +409,7 @@ export default function App() {
         highlightedPathNodeIDs={highlightedPathNodeIDs}
         plotMode={plotMode}
         mapAction={mapAction}
+        baseMode={mapBaseMode}
         initialView={sharedViewRef.current}
         loading={loadingPositionedNodes}
         onPositionedNodesRendered={handlePositionedNodesRendered}
@@ -427,6 +441,15 @@ export default function App() {
         <button className="icon-button route-focus" type="button" title="Focus latest route" onClick={() => dispatchMapAction('latest-route')}>
           <LocateFixed size={18} />
         </button>
+        <button
+          className={`icon-button map-base-toggle ${mapBaseMode === 'openfreemap' ? 'active' : ''}`}
+          type="button"
+          aria-pressed={mapBaseMode === 'openfreemap'}
+          title={mapBaseMode === 'openfreemap' ? 'Switch to original map' : 'Switch to OpenFreeMap 3D'}
+          onClick={() => setMapBaseMode((value) => (value === 'openfreemap' ? 'original' : 'openfreemap'))}
+        >
+          <Layers size={18} />
+        </button>
         <button className="icon-button" type="button" title="Share this view" onClick={shareView}>
           <Share2 size={18} />
         </button>
@@ -446,6 +469,17 @@ export default function App() {
         <RadioTower size={15} />
         <span>Live Follow</span>
       </button>
+      <button
+        className={`packet-tv-button ${packetTvOpen ? 'active' : ''}`}
+        type="button"
+        aria-pressed={packetTvOpen}
+        title={packetTvOpen ? 'Close PacketTV' : 'Open PacketTV chase view'}
+        onClick={() => setPacketTvOpen((value) => !value)}
+      >
+        <RadioTower size={15} />
+        <span>PacketTV</span>
+      </button>
+      <PacketTV open={packetTvOpen} candidate={packetTvCandidate} onClose={() => setPacketTvOpen(false)} />
 
       <PlotRoutesPanel
         mode={plotMode}

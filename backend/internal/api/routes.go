@@ -57,6 +57,23 @@ func (s *Server) Routes() http.Handler {
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
+	if s.PublicState != nil {
+		if state, ok := s.PublicState(); ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":                true,
+				"mqttConnected":     s.MQTTConnected(),
+				"broker":            "mqtt1",
+				"packets":           state.Stats.Packets,
+				"nodesWithPosition": state.Stats.ActiveNodes,
+				"edgeEvents":        state.Stats.ActiveRoutes,
+				"unresolved":        publicResolutionCount(state.Stats.ResolutionBuckets, "unresolved_path"),
+				"wsClients":         s.wsClientCount(),
+				"mqttMessages":      s.MQTTTotal(),
+				"cached":            true,
+			})
+			return
+		}
+	}
 	stats, err := s.Store.Stats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -73,6 +90,14 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 		"wsClients":         s.wsClientCount(),
 		"mqttMessages":      s.MQTTTotal(),
 	})
+}
+
+func publicResolutionCount(buckets map[string]map[string]int64, name string) int64 {
+	var total int64
+	for _, region := range buckets {
+		total += region[name]
+	}
+	return total
 }
 
 func (s *Server) publicState(w http.ResponseWriter, r *http.Request) {

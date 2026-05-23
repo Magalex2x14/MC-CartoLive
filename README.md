@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v1.3.1
+# MeshCore MQTT Live Map v1.4.0
 
 Also known as **MC-CartoLive**.
 
@@ -29,13 +29,19 @@ Real public map data from the local production container:
 - Subscribes read-only to MeshCore MQTT packet and status topics.
 - Decodes MeshCore packet and payload types needed for public map rendering.
 - Resolves RF paths conservatively, without drawing guessed routes.
-- Shows low-zoom cluster activity and high-zoom route/node detail.
+- Shows low-zoom role-split cluster activity and high-zoom route/node detail.
+- Keeps routes, nodes, observer icons, packet effects, and message bubbles behind one shared detail zoom threshold so routes never appear without nodes.
+- Shows ordinary node names on hover/details only, while observer names persist without noisy last-seen text.
+- Greys stale nodes after 30 minutes and darkens them further after 60 minutes.
 - Lets users select repeaters, observers, rooms, companions, or sensors to highlight directly served RF routes and connected nodes.
 - Keeps route lines passive on the map so dense RF paths do not steal clicks from nodes.
+- Optimizes dense route rendering for slower computers by avoiding unnecessary full route redraws and rendering live route glow only for active routes.
+- Paces live websocket bursts so packet counters, observer bursts, and routed comets keep moving smoothly instead of arriving as one visual clump.
+- Adds PacketTV, a compact floating chase-camera panel that follows long public routed packets without moving the main map.
 - Adds a searchable reachable-node phonebook that defaults to useful shortest-path routes first, can filter by distance, supports best/shortest/busiest/nearest/recent sorting, highlights a selected multi-hop path, and can copy MeshCore 3-byte route prefixes.
 - Adds a Plot routes control for choosing two node endpoints or two map corners and highlighting matching public RF routes.
 - Shows decoded public chatter history for the selected node when sanitized message text is available in the live window.
-- Animates live packet comets, observer bursts, route payload glows, and message bubbles.
+- Animates live packet comets, sustained observer activity aura, route payload glows, and message bubbles.
 - Includes a compact project bar with MeshCore Canada, GitHub, version, and build links.
 - Provides a red Live Follow control for smoothly following areas with fresh packet movement.
 - Prioritizes the map on mobile by moving controls to the bottom and hiding secondary panels/toasts.
@@ -73,6 +79,20 @@ Open:
 ```text
 http://localhost:39476
 ```
+
+The dashboard starts in the original MapLibre/CARTO dark view. Use the map
+base toggle in the map controls to switch the same live map to the
+OpenFreeMap 3D view without changing ports or services.
+
+Optional isolated OpenFreeMap 3D dev stack:
+
+```bash
+docker compose -f docker-compose.openfreemap.yml up --build
+```
+
+Open `http://localhost:39477`. This stack reuses the same `.env` credentials
+but uses a separate MQTT client ID and `data-openfreemap/` database directory so
+it can run beside the main container.
 
 The committed example runs a synthetic fixture by default so a fresh clone works
 without MQTT credentials. To connect to live MQTT, edit your private `.env`, set
@@ -144,7 +164,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v1.3.1 release path is clone + Docker Compose on a VPS or local
+The recommended v1.4.0 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

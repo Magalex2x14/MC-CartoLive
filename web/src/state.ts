@@ -14,6 +14,8 @@ export const ROUTE_TRACE_WINDOW_MS = 15 * 60_000;
 export const ROUTE_TRACE_BIN_COUNT = 12;
 export const PACKET_RATE_WINDOW_MS = 60_000;
 export const OBSERVER_BURST_WINDOW_MS = 15 * 60_000;
+export const SNAPSHOT_PULSE_REPLAY_LIMIT = 32;
+export const SNAPSHOT_PULSE_REPLAY_SPACING_MS = 140;
 
 export interface RouteTraceHit {
   routeId: string;
@@ -62,7 +64,7 @@ export const emptyState: AppState = {
 };
 
 export function initialAppState(state: PublicLiveState): AppState {
-  const pulses = (state.recentPulses ?? []).slice(0, 80);
+  const pulses = hydrateSnapshotPulses(state.recentPulses ?? [], state.serverTime);
   const serverTime = state.serverTime;
   return {
     nodes: state.nodes ?? [],
@@ -74,6 +76,20 @@ export function initialAppState(state: PublicLiveState): AppState {
     stats: state.stats ?? null,
     serverTime
   };
+}
+
+export function hydrateSnapshotPulses(pulses: PublicRoutePulse[], serverTime: number): PublicRoutePulse[] {
+  const recent = pulses.slice(0, SNAPSHOT_PULSE_REPLAY_LIMIT);
+  const oldestFirst = recent.slice().reverse();
+  const displayAtByID = new Map<string, number>();
+  oldestFirst.forEach((pulse, index) => {
+    displayAtByID.set(pulse.id, serverTime + index * SNAPSHOT_PULSE_REPLAY_SPACING_MS);
+  });
+  return recent.map((pulse) => ({
+    ...pulse,
+    receivedAt: pulse.receivedAt ?? serverTime,
+    displayAt: pulse.displayAt ?? displayAtByID.get(pulse.id) ?? serverTime
+  }));
 }
 
 export function applyPublicEnvelope(state: AppState, message: PublicLiveEnvelope): AppState {

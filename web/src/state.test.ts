@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   ROUTE_TRACE_BIN_COUNT,
   ROUTE_TRACE_WINDOW_MS,
+  SNAPSHOT_PULSE_REPLAY_LIMIT,
+  SNAPSHOT_PULSE_REPLAY_SPACING_MS,
   applyPublicEnvelope,
   addObserverBurst,
   currentPacketRatePerMinute,
   filterNodes,
   filterRoutes,
+  hydrateSnapshotPulses,
   initialAppState,
   liveCoverageStats,
   pruneObserverBursts,
@@ -112,7 +115,31 @@ describe('public app state', () => {
 
     expect(state.pulses[0].messageText).toBe('hello map');
     expect(state.pulses[0].messageSender).toBe('Tree');
+    expect(state.pulses[0].receivedAt).toBe(publicState.serverTime);
+    expect(state.pulses[0].displayAt).toBe(publicState.serverTime);
     expect(state.routeTraces).toHaveLength(1);
+  });
+
+  it('paces snapshot pulse replay and limits reconnect bursts', () => {
+    const pulses = Array.from({ length: SNAPSHOT_PULSE_REPLAY_LIMIT + 5 }, (_, index) => ({
+      id: `pulse-${index}`,
+      payloadTypeName: 'ADVERT',
+      heardAt: publicState.serverTime - index * 1000,
+      segments: [
+        {
+          routeId: `r-${index}`,
+          from: publicState.routes[0].from,
+          to: publicState.routes[0].to,
+          distanceKm: 93
+        }
+      ]
+    }));
+
+    const hydrated = hydrateSnapshotPulses(pulses, publicState.serverTime);
+
+    expect(hydrated).toHaveLength(SNAPSHOT_PULSE_REPLAY_LIMIT);
+    expect(hydrated.at(-1)?.displayAt).toBe(publicState.serverTime);
+    expect(hydrated[0].displayAt).toBe(publicState.serverTime + (SNAPSHOT_PULSE_REPLAY_LIMIT - 1) * SNAPSHOT_PULSE_REPLAY_SPACING_MS);
   });
 
   it('updates sanitized activity and packet stats from public websocket events', () => {

@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+import { mapOverlayStyle } from './CanadaMap';
+import { DETAIL_MIN_ZOOM } from './zoomMode';
+
+describe('map zoom layer consistency', () => {
+  it('keeps routes, route glow, nodes, and observers behind the same detail zoom gate', () => {
+    for (const id of ['route-focus-glow', 'route-payload-glow', 'route-lines', 'selected-node-halo', 'node-symbols', 'observer-symbols']) {
+      expect(layer(id)?.minzoom).toBe(DETAIL_MIN_ZOOM);
+    }
+  });
+
+  it('keeps all cluster-only layers below detail mode', () => {
+    for (const item of mapOverlayStyle.layers) {
+      if (item.id === 'node-clusters' || item.id === 'node-cluster-counts' || item.id.startsWith('node-cluster-role-') || item.id.startsWith('cluster-activity-')) {
+        expect(item.maxzoom).toBe(DETAIL_MIN_ZOOM);
+      }
+    }
+  });
+
+  it('aggregates role counts on the clustered node source', () => {
+    const source = mapOverlayStyle.sources['public-nodes'] as any;
+    expect(source.cluster).toBe(true);
+    expect(source.clusterProperties).toMatchObject({
+      repeaterCount: expect.any(Array),
+      companionCount: expect.any(Array),
+      roomCount: expect.any(Array),
+      observerCount: expect.any(Array),
+      otherCount: expect.any(Array)
+    });
+  });
+});
+
+function layer(id: string) {
+  return mapOverlayStyle.layers.find((item) => item.id === id);
+}

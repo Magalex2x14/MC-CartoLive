@@ -1,7 +1,7 @@
 import type { LiveCoverageStats } from '../state';
 import type { PublicStats } from '../types';
 
-export const STALE_PACKET_MS = 15_000;
+export const STALE_PACKET_MS = 60_000;
 
 export function serverStatus(stats: PublicStats | null, socketStatus: string, coverage: LiveCoverageStats): { label: 'Live' | 'Stale'; live: boolean } {
   const transportFailed = socketStatus === 'closed' || socketStatus === 'state-error' || socketStatus === 'bad-message';

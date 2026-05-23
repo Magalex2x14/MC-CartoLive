@@ -35,6 +35,11 @@ backend can decode it from public packet data or from private channel secrets
 provided locally by the operator. The frontend can reuse that same sanitized
 message text as short node chatter history for selected nodes.
 
+PacketTV uses only the same public route pulse data already sent to the map:
+public endpoint labels, public 3-byte route prefixes where present, segment
+distance, hop count, payload type, and sanitized message sender fields. It does
+not expose private keys, full path hex, packet hashes, or resolver debug data.
+
 ## IATA Allowlist
 
 The public map filters state and live events through `PUBLIC_IATAS`. Unsupported

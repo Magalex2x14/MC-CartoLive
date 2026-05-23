@@ -1,0 +1,144 @@
+import type { PublicRoute } from '../types';
+import { isMappableEndpoint } from './geo';
+import type { NodeFocus } from './nodeFocus';
+
+export const routeColors = ['#2563eb', '#06b6d4', '#22c55e', '#f97316', '#ef4444'];
+
+export interface RoutePayloadGlow {
+  color: string;
+  startedAt: number;
+  expiresAt: number;
+}
+
+type FeatureCollection = {
+  type: 'FeatureCollection';
+  features: Array<Record<string, unknown>>;
+};
+
+export function routesToGeoJSON(
+  routes: PublicRoute[],
+  selectedRouteID: string | null,
+  focus: NodeFocus
+): FeatureCollection {
+  const hasFocusedRoute = Boolean(selectedRouteID || focus.selectedNodeID || focus.pathRouteIDs.size > 0);
+  return {
+    type: 'FeatureCollection',
+    features: routes
+      .filter((route) => isMappableEndpoint(route.from) && isMappableEndpoint(route.to))
+      .map((route) => {
+        const selected = route.id === selectedRouteID;
+        const connected = focus.connectedRouteIDs.has(route.id);
+        const path = focus.pathRouteIDs.has(route.id);
+        return {
+          type: 'Feature',
+          id: route.id,
+          properties: {
+            id: route.id,
+            color: routeColors[Math.max(0, Math.min(4, route.frequencyBucket))],
+            selected,
+            path,
+            connected,
+            dimmed: hasFocusedRoute && !selected && !path && !connected
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [route.from.lng, route.from.lat],
+              [route.to.lng, route.to.lat]
+            ]
+          }
+        };
+      })
+  };
+}
+
+export function routeSourceSignature(routes: PublicRoute[], selectedRouteID: string | null, focus: NodeFocus): string {
+  return [
+    selectedRouteID ?? '',
+    focus.selectedNodeID ?? '',
+    stableSetSignature(focus.connectedRouteIDs),
+    stableSetSignature(focus.pathRouteIDs),
+    routes.map(routeRenderIdentity).sort().join('|')
+  ].join('~');
+}
+
+export function routeColorSignature(routes: PublicRoute[]): string {
+  return routes.map((route) => `${route.id}:${Math.max(0, Math.min(4, route.frequencyBucket))}`).sort().join('|');
+}
+
+export function pruneRoutePayloadGlows(glows: Map<string, RoutePayloadGlow>, now: number, minIntensity = 0.01): number {
+  let activeGlowCount = 0;
+  for (const [routeID, glow] of glows.entries()) {
+    const intensity = routePayloadGlowIntensity(glow, now);
+    if (now >= glow.expiresAt || intensity <= minIntensity) {
+      glows.delete(routeID);
+      continue;
+    }
+    activeGlowCount += 1;
+  }
+  return activeGlowCount;
+}
+
+export function routePayloadGlowsToGeoJSON(
+  routes: PublicRoute[],
+  glows: Map<string, RoutePayloadGlow>,
+  selectedRouteID: string | null,
+  focus: NodeFocus,
+  now: number
+): FeatureCollection {
+  const routeByID = new Map(routes.map((route) => [route.id, route]));
+  const hasFocusedRoute = Boolean(selectedRouteID || focus.selectedNodeID || focus.pathRouteIDs.size > 0);
+  const features: Array<Record<string, unknown>> = [];
+
+  for (const [routeID, glow] of glows.entries()) {
+    const route = routeByID.get(routeID);
+    if (!route || !isMappableEndpoint(route.from) || !isMappableEndpoint(route.to)) continue;
+    const intensity = routePayloadGlowIntensity(glow, now);
+    if (intensity <= 0.01) continue;
+    const selected = routeID === selectedRouteID;
+    const connected = focus.connectedRouteIDs.has(routeID);
+    const path = focus.pathRouteIDs.has(routeID);
+    const dimmed = hasFocusedRoute && !selected && !path && !connected;
+    features.push({
+      type: 'Feature',
+      id: routeID,
+      properties: {
+        id: routeID,
+        color: glow.color,
+        opacity: intensity * (dimmed ? 0.18 : 0.42)
+      },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [route.from.lng, route.from.lat],
+          [route.to.lng, route.to.lat]
+        ]
+      }
+    });
+  }
+
+  return { type: 'FeatureCollection', features };
+}
+
+function routePayloadGlowIntensity(glow: RoutePayloadGlow, now: number): number {
+  const duration = Math.max(1, glow.expiresAt - glow.startedAt);
+  const progress = Math.max(0, Math.min(1, (now - glow.startedAt) / duration));
+  return Math.pow(1 - progress, 0.72);
+}
+
+function routeRenderIdentity(route: PublicRoute): string {
+  return [
+    route.id,
+    route.frequencyBucket,
+    route.from.nodeId,
+    route.from.lat,
+    route.from.lng,
+    route.to.nodeId,
+    route.to.lat,
+    route.to.lng
+  ].join(':');
+}
+
+function stableSetSignature(values: Set<string>): string {
+  return [...values].sort().join(',');
+}

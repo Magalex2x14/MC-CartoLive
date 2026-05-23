@@ -16,6 +16,8 @@ describe('share view URLs', () => {
   it('rejects invalid view coordinates', () => {
     expect(parseSharedView('?lat=200&lng=-79&z=9')).toBeNull();
     expect(parseSharedView('?lat=43&lng=-79&z=99')).toBeNull();
+    expect(parseSharedView('?lat=43&lng=-79&z=9&pitch=100')).toBeNull();
+    expect(parseSharedView('?lat=43&lng=-79&z=9&bearing=240')).toBeNull();
     expect(parseSharedView('?lng=-79&z=9')).toBeNull();
   });
 
@@ -33,5 +35,21 @@ describe('share view URLs', () => {
       node: 'node-1'
     });
     expect(url).toBe('https://routes.canadaverse.org/?lat=1&lng=2&z=3&route=route-1');
+  });
+
+  it('round-trips 3d camera pitch and bearing when provided', () => {
+    const parsed = parseSharedView('?lat=43.6532&lng=-79.3832&z=15.5&pitch=46.4&bearing=-11.2');
+    expect(parsed).toEqual({
+      lat: 43.6532,
+      lng: -79.3832,
+      z: 15.5,
+      pitch: 46.4,
+      bearing: -11.2,
+      route: undefined,
+      node: undefined,
+      q: undefined
+    });
+    const url = buildSharedViewURL('https://routes.canadaverse.org/', { lat: 43.6532, lng: -79.3832, z: 15.5, pitch: 46.44, bearing: -11.24 }, {});
+    expect(url).toBe('https://routes.canadaverse.org/?lat=43.6532&lng=-79.3832&z=15.5&pitch=46.4&bearing=-11.2');
   });
 });

@@ -3,7 +3,7 @@ import { MAX_ANIMATION_EVENT_AGE_MS, shouldAnimateLiveEvent } from './animationS
 
 describe('animation safety', () => {
   it('drops hidden-tab and stale animation events', () => {
-    const now = 20_000;
+    const now = 60_000;
 
     expect(shouldAnimateLiveEvent(now - 1000, now, false)).toBe(true);
     expect(shouldAnimateLiveEvent(now - MAX_ANIMATION_EVENT_AGE_MS, now, false)).toBe(true);

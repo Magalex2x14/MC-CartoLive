@@ -2,6 +2,8 @@ export interface SharedViewState {
   lat: number;
   lng: number;
   z: number;
+  pitch?: number;
+  bearing?: number;
   route?: string;
   node?: string;
   q?: string;
@@ -11,6 +13,8 @@ export interface MapViewState {
   lat: number;
   lng: number;
   z: number;
+  pitch?: number;
+  bearing?: number;
 }
 
 export function parseSharedView(search: string): SharedViewState | null {
@@ -19,12 +23,16 @@ export function parseSharedView(search: string): SharedViewState | null {
   const lat = Number(params.get('lat'));
   const lng = Number(params.get('lng'));
   const z = Number(params.get('z'));
+  const pitch = optionalNumberParam(params, 'pitch');
+  const bearing = optionalNumberParam(params, 'bearing');
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(z)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180 || z < 0 || z > 24) return null;
+  if (pitch !== undefined && (!Number.isFinite(pitch) || pitch < 0 || pitch > 85)) return null;
+  if (bearing !== undefined && (!Number.isFinite(bearing) || bearing < -180 || bearing > 180)) return null;
   const route = params.get('route')?.trim() || undefined;
   const node = route ? undefined : params.get('node')?.trim() || undefined;
   const q = params.get('q')?.trim() || undefined;
-  return { lat, lng, z, route, node, q };
+  return { lat, lng, z, ...(pitch !== undefined ? { pitch } : {}), ...(bearing !== undefined ? { bearing } : {}), route, node, q };
 }
 
 export function buildSharedViewURL(baseHref: string, view: MapViewState, options: { route?: string | null; node?: string | null; q?: string }): string {
@@ -32,6 +40,8 @@ export function buildSharedViewURL(baseHref: string, view: MapViewState, options
   url.searchParams.set('lat', fixedCoordinate(view.lat));
   url.searchParams.set('lng', fixedCoordinate(view.lng));
   url.searchParams.set('z', fixedZoom(view.z));
+  setOptionalNumberParam(url, 'pitch', view.pitch, fixedCameraAngle);
+  setOptionalNumberParam(url, 'bearing', view.bearing, fixedCameraAngle);
   url.searchParams.delete('route');
   url.searchParams.delete('node');
   if (options.route) {
@@ -50,4 +60,19 @@ function fixedCoordinate(value: number): string {
 
 function fixedZoom(value: number): string {
   return value.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function fixedCameraAngle(value: number): string {
+  return value.toFixed(1).replace(/\.?0+$/, '');
+}
+
+function optionalNumberParam(params: URLSearchParams, key: string): number | undefined {
+  if (!params.has(key)) return undefined;
+  const value = Number(params.get(key));
+  return Number.isFinite(value) ? value : Number.NaN;
+}
+
+function setOptionalNumberParam(url: URL, key: string, value: number | undefined, formatter: (value: number) => string) {
+  if (Number.isFinite(value)) url.searchParams.set(key, formatter(value as number));
+  else url.searchParams.delete(key);
 }

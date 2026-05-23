@@ -9,6 +9,8 @@ import (
 	"meshcore-canada-live-map/backend/internal/live"
 )
 
+const maxFutureEdgeSkew = 5 * time.Minute
+
 func (s *Store) InsertEdgeEvent(ctx context.Context, event live.EdgeEvent) (live.EdgeEvent, error) {
 	now := time.Now().UnixMilli()
 	result, err := s.db.ExecContext(ctx, `
@@ -39,13 +41,15 @@ func (s *Store) RecentEdgeEvents(ctx context.Context, limit int) ([]live.EdgeEve
 	if limit <= 0 || limit > 2000 {
 		limit = 200
 	}
+	maxHeardAt := time.Now().Add(maxFutureEdgeSkew).UnixMilli()
 	rows, err := s.db.QueryContext(ctx, `
 SELECT e.id, e.packet_hash, e.observation_id, COALESCE(o.iata, ''), e.payload_type, e.payload_type_name,
   e.message_sender, e.message_text, e.message_anchor_json, e.heard_at_ms, e.segments_json, e.render_reason
 FROM live_edge_events e
 LEFT JOIN packet_observations o ON o.id=e.observation_id
+WHERE e.heard_at_ms <= ?
 ORDER BY e.heard_at_ms DESC, e.id DESC
-LIMIT ?`, limit)
+LIMIT ?`, maxHeardAt, limit)
 	if err != nil {
 		return nil, err
 	}

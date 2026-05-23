@@ -885,6 +885,7 @@ export default function CanadaMap({
     if (!map) return;
     if (shouldAnimate) followTrafficPulse(map, pulse, followTrafficRef.current, followTrafficStateRef);
     if (isClusterMode(map)) {
+      if (shouldAnimate) animatorRef.current?.add(pulse);
       if (shouldAnimate && addPulseClusterActivityGlow(map, clusterActivityGlowRef.current, pulse)) {
         startClusterActivityGlowTimer(map, clusterActivityGlowRef, clusterActivityGlowTimerRef);
       }

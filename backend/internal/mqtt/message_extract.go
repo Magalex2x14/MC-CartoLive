@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const maxAcceptedTimestampSkew = 5 * time.Minute
+
 type NormalizedMessage struct {
 	Topic        string         `json:"topic"`
 	TopicInfo    TopicInfo      `json:"topicInfo"`
@@ -59,10 +61,23 @@ func Normalize(topic string, payload []byte, receivedAt time.Time) (NormalizedMe
 	msg.SNR = firstNumber(object, "SNR", "snr", "last_snr")
 	msg.Score = firstNumber(object, "score", "Score")
 	if t := firstTime(object, "timestamp", "time", "received_at", "heard_at", "ts"); !t.IsZero() {
-		msg.HeardAtMs = t.UnixMilli()
+		msg.HeardAtMs = normalizedHeardAt(t, receivedAt).UnixMilli()
 	}
 
 	return msg, nil
+}
+
+func normalizedHeardAt(parsed time.Time, receivedAt time.Time) time.Time {
+	if parsed.IsZero() {
+		return receivedAt
+	}
+	if receivedAt.IsZero() {
+		return parsed
+	}
+	if parsed.After(receivedAt.Add(maxAcceptedTimestampSkew)) || parsed.Before(receivedAt.Add(-maxAcceptedTimestampSkew)) {
+		return receivedAt
+	}
+	return parsed
 }
 
 func firstString(m map[string]any, keys ...string) string {

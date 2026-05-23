@@ -16,6 +16,8 @@ export const PACKET_RATE_WINDOW_MS = 60_000;
 export const OBSERVER_BURST_WINDOW_MS = 15 * 60_000;
 export const SNAPSHOT_PULSE_REPLAY_LIMIT = 32;
 export const SNAPSHOT_PULSE_REPLAY_SPACING_MS = 140;
+export const SNAPSHOT_PULSE_STALE_MS = 60_000;
+export const SNAPSHOT_PULSE_FUTURE_SKEW_MS = 10_000;
 
 export interface RouteTraceHit {
   routeId: string;
@@ -79,7 +81,11 @@ export function initialAppState(state: PublicLiveState): AppState {
 }
 
 export function hydrateSnapshotPulses(pulses: PublicRoutePulse[], serverTime: number): PublicRoutePulse[] {
-  const recent = pulses.slice(0, SNAPSHOT_PULSE_REPLAY_LIMIT);
+  const maxHeardAt = serverTime + SNAPSHOT_PULSE_FUTURE_SKEW_MS;
+  const minHeardAt = serverTime - SNAPSHOT_PULSE_STALE_MS;
+  const recent = pulses
+    .filter((pulse) => pulse.heardAt >= minHeardAt && pulse.heardAt <= maxHeardAt)
+    .slice(0, SNAPSHOT_PULSE_REPLAY_LIMIT);
   const oldestFirst = recent.slice().reverse();
   const displayAtByID = new Map<string, number>();
   oldestFirst.forEach((pulse, index) => {

@@ -4,6 +4,8 @@ import {
   ROUTE_TRACE_WINDOW_MS,
   SNAPSHOT_PULSE_REPLAY_LIMIT,
   SNAPSHOT_PULSE_REPLAY_SPACING_MS,
+  SNAPSHOT_PULSE_FUTURE_SKEW_MS,
+  SNAPSHOT_PULSE_STALE_MS,
   applyPublicEnvelope,
   addObserverBurst,
   currentPacketRatePerMinute,
@@ -140,6 +142,36 @@ describe('public app state', () => {
     expect(hydrated).toHaveLength(SNAPSHOT_PULSE_REPLAY_LIMIT);
     expect(hydrated.at(-1)?.displayAt).toBe(publicState.serverTime);
     expect(hydrated[0].displayAt).toBe(publicState.serverTime + (SNAPSHOT_PULSE_REPLAY_LIMIT - 1) * SNAPSHOT_PULSE_REPLAY_SPACING_MS);
+  });
+
+  it('drops stale and far-future snapshot pulses before replaying packet comets', () => {
+    const goodPulse = {
+      id: 'pulse-current',
+      payloadTypeName: 'ADVERT',
+      heardAt: publicState.serverTime,
+      segments: [
+        {
+          routeId: 'r-current',
+          from: publicState.routes[0].from,
+          to: publicState.routes[0].to,
+          distanceKm: 93
+        }
+      ]
+    };
+    const futurePulse = {
+      ...goodPulse,
+      id: 'pulse-future',
+      heardAt: publicState.serverTime + SNAPSHOT_PULSE_FUTURE_SKEW_MS + 1
+    };
+    const stalePulse = {
+      ...goodPulse,
+      id: 'pulse-stale',
+      heardAt: publicState.serverTime - SNAPSHOT_PULSE_STALE_MS - 1
+    };
+
+    const hydrated = hydrateSnapshotPulses([futurePulse, stalePulse, goodPulse], publicState.serverTime);
+
+    expect(hydrated.map((pulse) => pulse.id)).toEqual(['pulse-current']);
   });
 
   it('updates sanitized activity and packet stats from public websocket events', () => {

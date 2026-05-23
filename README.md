@@ -18,6 +18,12 @@ Meshcore Canada MQTT - https://carto.canadaverse.org/
 
 Real public map data from the local production container:
 
+![MC-CartoLive 2.1 feature collage](docs/assets/screenshots/mc-cartolive-2.1-share-collage.png)
+
+The 2.1 view includes dark/light map modes, OpenFreeMap 3D, route plotting,
+node clusters, route focus, node details, phonebook routing, VCR replay, and
+palette swatches.
+
 ![Canada cluster overview](docs/assets/screenshots/canada-clusters.png)
 
 ![Toronto live route detail](docs/assets/screenshots/toronto-detail.png)

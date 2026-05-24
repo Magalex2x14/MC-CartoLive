@@ -21,6 +21,7 @@ import SelectionDrawer from './components/SelectionDrawer';
 import StatusBar from './components/StatusBar';
 import VcrBar, { MiniLiveClock } from './components/VcrBar';
 import ChromePanel from './components/ChromePanel';
+import PerfPanel from './components/PerfPanel';
 import {
   DEFAULT_CHROME_PANEL_ANCHORS,
   INITIAL_CHROME_PANEL_VISIBILITY,
@@ -119,6 +120,7 @@ export default function App() {
   const [themePaletteID, setThemePaletteID] = useState(() => initialThemeRef.current.palette.id);
   const [paletteMenuOpen, setPaletteMenuOpen] = useState(false);
   const [panelsMenuOpen, setPanelsMenuOpen] = useState(false);
+  const [perfOpen, setPerfOpen] = useState(() => window.location.hash === '#/perf');
   const [initialLoadGateOpen, setInitialLoadGateOpen] = useState(true);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [liveClock, setLiveClock] = useState(() => Date.now());
@@ -151,6 +153,27 @@ export default function App() {
   const flushMessagesTimerRef = useRef<number | null>(null);
   const selectedThemePalette = useMemo(() => themePaletteByID(themePaletteID), [themePaletteID]);
   const appThemeStyle = useMemo(() => themeStyleVariables(selectedThemePalette, themeMode) as CSSProperties, [selectedThemePalette, themeMode]);
+
+  useEffect(() => {
+    const updateRoute = () => {
+      const open = window.location.hash === '#/perf';
+      setPerfOpen(open);
+      if (open) {
+        setPaletteMenuOpen(false);
+        setPanelsMenuOpen(false);
+      }
+    };
+    updateRoute();
+    window.addEventListener('hashchange', updateRoute);
+    return () => window.removeEventListener('hashchange', updateRoute);
+  }, []);
+
+  const closePerf = useCallback(() => {
+    if (window.location.hash === '#/perf') {
+      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    setPerfOpen(false);
+  }, []);
 
   useEffect(() => {
     vcrModeRef.current = vcr.mode;
@@ -790,7 +813,7 @@ export default function App() {
         onClearSelection={clearSelection}
       />
       {loadingPositionedNodes && <NodeLoadingToast failed={nodeLoadFailed} drawing={initialNodesReceived} />}
-      <LinkBar />
+      <LinkBar perfOpen={perfOpen} />
       {!chromeHidden && (
         <StatusBar
           stats={state.stats}
@@ -926,6 +949,7 @@ export default function App() {
         </button>
       </div>
       {shareToast && <div className="share-toast" role="status">{shareToast}</div>}
+      {perfOpen && <PerfPanel onClose={closePerf} />}
 
       {!vcrOpen && (
         <>

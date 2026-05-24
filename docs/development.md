@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.3.1 VCR, route-copy, phonebook, live-confidence, and route performance checks:
+For v2.3.2 VCR, route-copy, phonebook, live-confidence, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -156,9 +156,9 @@ For v2.3.1 VCR, route-copy, phonebook, live-confidence, and route performance ch
   same live-map paths.
 - Scrub the VCR timeline in the last 24h, start replay from that point, and
   confirm Live Follow stays disabled until returning to Live.
-- Set `localStorage.setItem('mc-cartolive-debug-perf', '1')` in a browser
-  console, reload, and inspect `window.__mcCartoLivePerf` while animating routes.
-  Counters are browser-local only and must not be sent over the network.
+- Open the top-bar Perf tab or set `localStorage.setItem('mc-cartolive-debug-perf', '1')`
+  in a browser console, then inspect `window.__mcCartoLivePerf` while animating
+  routes. Counters are browser-local only and must not be sent over the network.
 - Confirm Search and compact Legend open top-left without overlap, Busy
   Pathways is hidden by default, and the Panels menu restores each panel.
 - Switch dark/light mode and several palettes; verify links, Legend, VCR, and
@@ -219,7 +219,7 @@ Use overrides when testing a branch, alternate host, expected build, or another
 diagnostic IATA:
 
 ```powershell
-.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.3.1 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.3.2 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
 ```
 
 Check privacy before committing:

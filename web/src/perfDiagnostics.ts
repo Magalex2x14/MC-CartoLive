@@ -28,6 +28,17 @@ export function perfDiagnosticsEnabled(storage: Storage | undefined = safeStorag
   }
 }
 
+export function setPerfDiagnosticsEnabled(enabled: boolean, storage: Storage | undefined = safeStorage()): void {
+  try {
+    if (enabled) {
+      storage?.setItem(STORAGE_KEY, '1');
+    } else {
+      storage?.removeItem(STORAGE_KEY);
+    }
+  } catch {
+  }
+}
+
 export function ensurePerfDiagnostics(): PerfCounters | null {
   if (typeof window === 'undefined' || !perfDiagnosticsEnabled()) return null;
   const existing = window.__mcCartoLivePerf;
@@ -46,6 +57,10 @@ export function ensurePerfDiagnostics(): PerfCounters | null {
   };
   window.__mcCartoLivePerf = counters;
   return counters;
+}
+
+export function perfDiagnosticsSnapshot(): PerfCounters | null {
+  return typeof window === 'undefined' ? null : window.__mcCartoLivePerf ?? ensurePerfDiagnostics();
 }
 
 export function recordSourceUpdate(sourceID: string): void {

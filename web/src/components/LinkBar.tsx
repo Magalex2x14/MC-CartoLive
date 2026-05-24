@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Github } from 'lucide-react';
+import { ExternalLink, Gauge, Github } from 'lucide-react';
 import { appVersion, buildNumber, buildTime, gitSha, releaseURL } from '../buildInfo';
 import {
   GITHUB_REPO_API_URL,
@@ -16,7 +16,11 @@ import {
 const MESHCORE_CANADA_URL = 'https://meshcore.ca/';
 const MESHCORE_CANADA_LOGO = '/meshcore-canada-favicon.png';
 
-export default function LinkBar() {
+interface LinkBarProps {
+  perfOpen?: boolean;
+}
+
+export default function LinkBar({ perfOpen = false }: LinkBarProps) {
   const [now, setNow] = useState(() => Date.now());
   const [repoStats, setRepoStats] = useState<RepoStats | null>(() => readCachedRepoStats(browserStorage()));
   const buildAge = useMemo(() => formatBuildAge(buildTime, now), [now]);
@@ -67,6 +71,10 @@ export default function LinkBar() {
           build {buildID}
         </a>
         <span title={buildDate}>{buildAge}</span>
+        <a className={`link-bar-perf ${perfOpen ? 'active' : ''}`} href="#/perf" title="Open performance lab">
+          <Gauge size={13} />
+          <span>Perf</span>
+        </a>
       </div>
       <a className="link-bar-github" href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" title="Open MC-CartoLive on GitHub">
         <Github size={15} />

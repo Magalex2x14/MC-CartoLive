@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ensurePerfDiagnostics,
+  perfDiagnosticsSnapshot,
   recordLivePendingQueueSize,
   recordPacketFrame,
   recordPacketSkippedFrame,
   recordSourceUpdate,
   recordVcrReplayQueueSize,
-  recordVisibilityPause
+  recordVisibilityPause,
+  setPerfDiagnosticsEnabled
 } from './perfDiagnostics';
 
 describe('perf diagnostics', () => {
@@ -39,6 +41,19 @@ describe('perf diagnostics', () => {
       livePendingQueueSize: 87,
       vcrReplayQueueSize: 42,
       visibilityPauses: 1
+    });
+  });
+
+  it('can be enabled by the in-app perf tab in production mode', () => {
+    vi.stubEnv('DEV', false);
+    delete window.__mcCartoLivePerf;
+    localStorage.clear();
+
+    expect(ensurePerfDiagnostics()).toBeNull();
+    setPerfDiagnosticsEnabled(true);
+    expect(perfDiagnosticsSnapshot()).toMatchObject({
+      packetActiveComets: 0,
+      routeSourceUpdates: 0
     });
   });
 });

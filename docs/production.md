@@ -98,7 +98,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.3.1 exposes the app version/build in the top project bar. CI builds use
+- Version 2.3.2 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker

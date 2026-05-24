@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.3.1
+# MeshCore MQTT Live Map v2.3.2
 
 Also known as **MC-CartoLive**.
 
@@ -53,6 +53,7 @@ palette swatches.
 - Adds a hidden-by-default VCR playback surface for pausing live motion, replaying missed routed packet comets, scrubbing recent history, and replaying at 0.5x, 1x, 2x, or 4x.
 - Keeps the VCR compact, clear of map controls, and paired with a bottom-right live pulse clock when closed.
 - Adds hideable/snappable Search, compact Legend, and Busy Pathways panels with a top panel restore menu.
+- Adds a top-bar Perf tab with public-safe live confidence, backend pressure, WebSocket, and browser-local map render counters.
 - Shows Busy Pathways as a compact last-15-minute packet-count list instead of a flow graph.
 - Adds client-side dark/light mode and MeshCore Tower palette selection.
 - Includes a transparent project bar with MeshCore Canada, GitHub stars/forks, linked version/build metadata, and build age.
@@ -188,7 +189,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.3.1 release path is clone + Docker Compose on a VPS or local
+The recommended v2.3.2 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

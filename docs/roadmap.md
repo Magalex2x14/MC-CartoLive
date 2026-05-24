@@ -20,7 +20,14 @@ missing-data investigations should be easy to run from the production host.
 - Include explicit checks for version, git SHA, build time, packet count, and
   `packetIngestState=fresh` under live traffic.
 
-## 2.3.2 - Diagnostic Snapshot Reports
+## 2.3.2 - Perf Lab Tab
+
+- Add a top-bar Perf tab for public-safe live confidence, backend pressure,
+  WebSocket, queue, and browser-local render counters.
+- Keep diagnostics browser-local or public-safe only; do not add telemetry or
+  expose private packet/debug data.
+
+## 2.3.3 - Diagnostic Snapshot Reports
 
 - Add operator-only snapshot commands for IATA health, missing coordinates,
   stale observers, and label-vs-actual-IATA mismatches.
@@ -28,14 +35,14 @@ missing-data investigations should be easy to run from the production host.
   config out of reports.
 - Use snapshots to answer “why is this missing?” before changing map logic.
 
-## 2.3.3 - Backup And Restore Rehearsal
+## 2.3.4 - Backup And Restore Rehearsal
 
 - Add documented backup/restore rehearsal steps for SQLite WAL deployments.
 - Verify the app can restart from restored `meshcore-live.db*` files.
 - Keep restore tests operator-run only; do not mutate production data without an
   explicit maintenance window.
 
-## 2.3.4 - Frontend Payload And Smoothness Pass
+## 2.3.5 - Frontend Payload And Smoothness Pass
 
 - Reduce the large frontend bundle with targeted code splitting where it is low
   risk.
@@ -44,7 +51,7 @@ missing-data investigations should be easy to run from the production host.
 - Use browser-local performance counters to prove source rebuild and animation
   behavior do not regress.
 
-## 2.3.5 - Production Candidate Gate
+## 2.3.6 - Production Candidate Gate
 
 - Complete a 24h live soak with packet ingest normally under five seconds stale.
 - Run backend tests, frontend tests/build, Docker build, release check, live

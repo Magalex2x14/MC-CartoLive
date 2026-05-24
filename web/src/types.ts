@@ -165,17 +165,52 @@ export interface PublicHistorySummaryResponse {
   buckets: PublicHistorySummaryBucket[];
 }
 
-export interface Health {
-  ok: boolean;
-  mqttConnected: boolean;
-  broker: string;
-  packets: number;
-  nodesWithPosition: number;
-  edgeEvents: number;
-  unresolved: number;
-  wsClients: number;
-  mqttMessages: number;
+export interface RuntimeHealth {
+  ok?: boolean;
+  ready?: boolean;
+  version?: string;
+  gitSha?: string;
+  buildTime?: string;
+  cached?: boolean;
+  dbReady?: boolean;
+  staticReady?: boolean;
+  publicStateReady?: boolean;
+  mqttConnected?: boolean;
+  mqttMessages?: number;
+  mqttDroppedMessages?: number;
+  mqttMalformedTopics?: number;
+  mqttReconnects?: number;
+  mqttLastMessageAgeMs?: number;
+  cacheAgeMs?: number;
+  cacheRefreshFailures?: number;
+  publicStateRequests?: number;
+  publicStateErrors?: number;
+  publicHistoryRequests?: number;
+  publicHistoryErrors?: number;
+  publicHistoryLatencyMs?: number;
+  publicSummaryRequests?: number;
+  publicSummaryErrors?: number;
+  packetIngestState?: string;
+  packetIngestFresh?: boolean;
+  publicCacheState?: string;
+  publicLiveFresh?: boolean;
+  mapMotionState?: string;
+  routeMotionState?: string;
+  observerMotionState?: string;
+  liveConfidenceState?: string;
+  recentRoutePulseAgeMs?: number;
+  recentObserverBurstAgeMs?: number;
+  packets?: number;
+  nodesWithPosition?: number;
+  edgeEvents?: number;
+  unresolved?: number;
+  wsClients?: number;
+  wsDroppedMessages?: number;
+  wsQueueHighWater?: number;
+  wsPingFailures?: number;
 }
+
+export type Health = RuntimeHealth;
 
 export type PublicLiveEnvelope =
   | { v: 1; type: 'hello'; seq?: number; serverTime: number; receivedAt?: number; displayAt?: number; connectionId: string }

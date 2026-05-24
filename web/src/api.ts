@@ -1,4 +1,4 @@
-import type { PublicHistoryResponse, PublicHistorySummaryResponse, PublicLiveState } from './types';
+import type { PublicHistoryResponse, PublicHistorySummaryResponse, PublicLiveState, RuntimeHealth } from './types';
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -10,6 +10,14 @@ async function getJSON<T>(url: string): Promise<T> {
 
 export function fetchPublicState(): Promise<PublicLiveState> {
   return getJSON<PublicLiveState>('/api/v1/public/state');
+}
+
+export function fetchHealthz(): Promise<RuntimeHealth> {
+  return getJSON<RuntimeHealth>('/healthz');
+}
+
+export function fetchReadyz(): Promise<RuntimeHealth> {
+  return getJSON<RuntimeHealth>('/readyz');
 }
 
 export interface PublicHistoryParams {

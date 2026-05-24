@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 2.3.2 - 2026-05-24
+
+- Added a CoreScope-style top-bar `Perf` tab at `#/perf` with public-safe health, readiness, public state, public history, WebSocket, queue, source-update, and packet animation counters.
+- Enabled browser-local performance counters from the Perf tab without sending telemetry or exposing raw packet hashes, full public keys, broker credentials, or resolver debug data.
+
 ## 2.3.1 - 2026-05-24
 
 - Added a local `scripts/live-smoke.ps1` production smoke command that verifies health, readiness, public state, public history, WebSocket hello, deployed metadata, Docker health, and bundled `mc-diagnose` on the live droplet.

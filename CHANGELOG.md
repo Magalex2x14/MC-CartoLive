@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.4.0 - 2026-05-24
+
+- Documented the 2.4 true-path Packets roadmap: public-safe packet API groundwork, Packets tab UI, local-only explainability diagnostics, performance/mobile polish, and production gate.
+- Added `GET /api/v1/public/packets`, a public-safe endpoint derived only from persisted mappable route pulse events with stable cursor pagination over the existing 24h history window.
+- Added backend tests proving the packets endpoint excludes observer-only, unmappable, disallowed-IATA, and private/raw packet data while preserving sanitized public path details.
+
 ## 2.3.2 - 2026-05-24
 
 - Added a CoreScope-style top-bar `Perf` tab at `#/perf` with public-safe health, readiness, public state, public history, WebSocket, queue, source-update, and packet animation counters.

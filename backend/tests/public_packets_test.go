@@ -1,0 +1,156 @@
+package tests
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"meshcore-canada-live-map/backend/internal/live"
+	"meshcore-canada-live-map/backend/internal/resolve"
+	"meshcore-canada-live-map/backend/internal/store"
+)
+
+func TestPublicPacketsEndpointReturnsOnlySanitizedTrueRoutedPackets(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("close store: %v", err)
+		}
+	})
+
+	observerKey := "AA00000000000000000000000000000000000000000000000000000000000000"
+	if err := st.ApplyManualNode(ctx, observerKey, "YYZ Observer", 43.65, -79.38, "test"); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Add(-time.Hour).UnixMilli()
+	observerOnlyID := insertHistoryObservation(t, ctx, st, "hash-observer-private", "YYZ", observerKey, base+1_000, resolve.StatusNoPath)
+	routedID := insertHistoryObservation(t, ctx, st, "hash-route-private", "YYZ", observerKey, base+2_000, resolve.StatusHigh)
+	insertHistoryEdge(t, ctx, st, routedID, "hash-route-private", base+2_000)
+	invalidID := insertHistoryObservation(t, ctx, st, "hash-invalid-private", "YYZ", observerKey, base+2_200, resolve.StatusHigh)
+	insertInvalidHistoryEdge(t, ctx, st, invalidID, "hash-invalid-private", base+2_200)
+	disallowedID := insertHistoryObservation(t, ctx, st, "hash-prg-private", "PRG", observerKey, base+2_400, resolve.StatusHigh)
+	insertHistoryEdge(t, ctx, st, disallowedID, "hash-prg-private", base+2_400)
+
+	server := publicHistoryTestServer(st, func(iata string) bool { return strings.ToUpper(iata) == "YYZ" })
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/public/packets?from="+ms(base)+"&to="+ms(base+3_000)+"&limit=10", nil)
+	server.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("packets status = %d body=%s", response.Code, response.Body.String())
+	}
+	var packets live.PublicPacketsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &packets); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(packets.Packets), 1; got != want {
+		t.Fatalf("packets = %d, want %d: %#v", got, want, packets.Packets)
+	}
+	packet := packets.Packets[0]
+	if packet.At != base+2_000 || packet.IATA != "YYZ" || packet.HopCount != 1 || packet.SegmentCount != 1 {
+		t.Fatalf("packet summary = %#v, want the single valid YYZ routed packet", packet)
+	}
+	if packet.DistanceKM != 360 || len(packet.Segments) != 1 || len(packet.EndpointLabels) != 2 {
+		t.Fatalf("packet path = %#v, want public segment details", packet)
+	}
+	raw := response.Body.String()
+	for _, forbidden := range []string{
+		"activity",
+		"packetHash",
+		"observerPublicKey",
+		"pathHex",
+		"resolutionReason",
+		"hash-observer-private",
+		"hash-route-private",
+		"hash-invalid-private",
+		"hash-prg-private",
+		"secret summary",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("packets response leaked forbidden value %q: %s", forbidden, raw)
+		}
+	}
+	if strings.Contains(raw, "PRG") {
+		t.Fatalf("packets response included disallowed IATA: %s", raw)
+	}
+	if observerOnlyID <= 0 {
+		t.Fatalf("invalid observation ID")
+	}
+}
+
+func TestPublicPacketsEndpointUsesStableCursorPagination(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("close store: %v", err)
+		}
+	})
+
+	observerKey := "AA00000000000000000000000000000000000000000000000000000000000000"
+	base := time.Now().Add(-time.Hour).UnixMilli()
+	firstID := insertHistoryObservation(t, ctx, st, "hash-route-one-private", "YYZ", observerKey, base+1_000, resolve.StatusHigh)
+	insertHistoryEdge(t, ctx, st, firstID, "hash-route-one-private", base+1_000)
+	secondID := insertHistoryObservation(t, ctx, st, "hash-route-two-private", "YYZ", observerKey, base+2_000, resolve.StatusHigh)
+	insertHistoryEdge(t, ctx, st, secondID, "hash-route-two-private", base+2_000)
+
+	server := publicHistoryTestServer(st, func(string) bool { return true })
+	firstPage := httptest.NewRecorder()
+	firstRequest := httptest.NewRequest(http.MethodGet, "/api/v1/public/packets?from="+ms(base)+"&to="+ms(base+3_000)+"&limit=1", nil)
+	server.Routes().ServeHTTP(firstPage, firstRequest)
+	if firstPage.Code != http.StatusOK {
+		t.Fatalf("first cursor page status = %d body=%s", firstPage.Code, firstPage.Body.String())
+	}
+	var page1 live.PublicPacketsResponse
+	if err := json.Unmarshal(firstPage.Body.Bytes(), &page1); err != nil {
+		t.Fatal(err)
+	}
+	if len(page1.Packets) != 1 || page1.Packets[0].At != base+1_000 || page1.NextCursor == "" {
+		t.Fatalf("first page = %#v, want oldest packet plus cursor", page1)
+	}
+
+	secondPage := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodGet, "/api/v1/public/packets?from="+ms(base)+"&to="+ms(base+3_000)+"&limit=1&cursor="+page1.NextCursor, nil)
+	server.Routes().ServeHTTP(secondPage, secondRequest)
+	if secondPage.Code != http.StatusOK {
+		t.Fatalf("second cursor page status = %d body=%s", secondPage.Code, secondPage.Body.String())
+	}
+	var page2 live.PublicPacketsResponse
+	if err := json.Unmarshal(secondPage.Body.Bytes(), &page2); err != nil {
+		t.Fatal(err)
+	}
+	if len(page2.Packets) != 1 || page2.Packets[0].At != base+2_000 {
+		t.Fatalf("second page = %#v, want second packet", page2)
+	}
+}
+
+func insertInvalidHistoryEdge(t *testing.T, ctx context.Context, st *store.Store, observationID int64, hash string, heardAt int64) {
+	t.Helper()
+	if _, err := st.InsertEdgeEvent(ctx, live.EdgeEvent{
+		PacketHash:      hash,
+		ObservationID:   observationID,
+		PayloadType:     2,
+		PayloadTypeName: "PLAIN_TEXT",
+		HeardAt:         heardAt,
+		Segments: []live.EdgeSegment{
+			{
+				From:       live.EdgeEndpoint{NodeID: "node-a", Name: "Sender", Lat: 0, Lng: 0},
+				To:         live.EdgeEndpoint{NodeID: "node-b", Name: "Repeater", Lat: 45.42, Lng: -75.69},
+				DistanceKM: 360,
+			},
+		},
+		RenderReason: "resolved_path_high_confidence",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

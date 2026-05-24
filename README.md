@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.3.2
+# MeshCore MQTT Live Map v2.4.0
 
 Also known as **MC-CartoLive**.
 
@@ -54,6 +54,7 @@ palette swatches.
 - Keeps the VCR compact, clear of map controls, and paired with a bottom-right live pulse clock when closed.
 - Adds hideable/snappable Search, compact Legend, and Busy Pathways panels with a top panel restore menu.
 - Adds a top-bar Perf tab with public-safe live confidence, backend pressure, WebSocket, and browser-local map render counters.
+- Adds public-safe true-path packet records backed only by persisted routed edge events for the upcoming detailed Packets page.
 - Shows Busy Pathways as a compact last-15-minute packet-count list instead of a flow graph.
 - Adds client-side dark/light mode and MeshCore Tower palette selection.
 - Includes a transparent project bar with MeshCore Canada, GitHub stars/forks, linked version/build metadata, and build age.
@@ -85,6 +86,7 @@ GET /readyz
 GET /api/v1/public/state
 GET /api/v1/public/history?from=<ms>&to=<ms>&limit=<n>&cursor=<token>
 GET /api/v1/public/history/summary?from=<ms>&to=<ms>&bucketMs=<n>
+GET /api/v1/public/packets?from=<ms>&to=<ms>&limit=<n>&cursor=<token>
 GET /ws/public
 ```
 
@@ -189,7 +191,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.3.2 release path is clone + Docker Compose on a VPS or local
+The recommended v2.4.0 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:
@@ -210,7 +212,7 @@ More details:
 - [Development](docs/development.md)
 - [Production](docs/production.md)
 - [Operator runbook](docs/operator-runbook.md)
-- [2.3 operator-confidence roadmap](docs/roadmap.md)
+- [2.3/2.4 operator and true-path packets roadmap](docs/roadmap.md)
 - [Privacy](docs/privacy.md)
 - [Security](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)

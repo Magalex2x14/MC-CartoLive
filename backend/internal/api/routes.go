@@ -66,6 +66,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/public/state", s.publicState)
 	mux.HandleFunc("GET /api/v1/public/history", s.publicHistory)
 	mux.HandleFunc("GET /api/v1/public/history/summary", s.publicHistorySummary)
+	mux.HandleFunc("GET /api/v1/public/packets", s.publicPackets)
 	mux.Handle("GET /ws/public", s.PublicHub)
 	if !s.Config.PublicMode {
 		mux.HandleFunc("GET /api/v1/live/state", s.liveState)
@@ -348,6 +349,8 @@ const (
 	publicHistoryMaxWindowMs     = int64(24 * time.Hour / time.Millisecond)
 	publicHistoryMaxLimit        = 2000
 	publicHistoryDefaultLimit    = 1000
+	publicPacketsMaxLimit        = 1000
+	publicPacketsDefaultLimit    = 250
 	publicHistoryTargetBuckets   = 96
 	publicHistoryMaxBuckets      = 288
 	publicHistoryLocationTTL     = 10 * time.Second
@@ -615,6 +618,97 @@ func (s *Server) publicHistorySummary(w http.ResponseWriter, r *http.Request) {
 	failed = false
 }
 
+func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	failed := true
+	defer func() {
+		s.logAPI("public_packets", time.Since(start), failed)
+	}()
+	if s.Store == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("store is not available"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 7*time.Second)
+	defer cancel()
+	now := time.Now().UnixMilli()
+	from, to := publicHistoryWindow(r, now)
+	limit := queryInt(r, "limit", publicPacketsDefaultLimit)
+	if limit <= 0 {
+		limit = publicPacketsDefaultLimit
+	}
+	if limit > publicPacketsMaxLimit {
+		limit = publicPacketsMaxLimit
+	}
+	cursor, err := decodeHistoryCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	packets := make([]live.PublicPacketPath, 0, limit)
+	nextCursor := cursor
+	var pathHash3ByNodeID map[string]string
+	locationsReady := false
+	for len(packets) < limit {
+		rawLimit := historyRawPageSize(limit - len(packets))
+		rawEvents, err := s.Store.PublicHistoryEvents(ctx, store.HistoryQuery{
+			From:   from,
+			To:     to,
+			Limit:  rawLimit,
+			Cursor: nextCursor,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if len(rawEvents) == 0 {
+			nextCursor = nil
+			break
+		}
+		for _, rawEvent := range rawEvents {
+			cursorValue := rawEvent.Cursor()
+			nextCursor = &cursorValue
+			if rawEvent.Type != "routePulse" || !s.allowsPublicIATA(rawEvent.IATA()) {
+				continue
+			}
+			if !locationsReady {
+				_, pathHash3ByNodeID, err = s.publicLocationIndexes(ctx)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				locationsReady = true
+			}
+			packet, ok := publicPacketPath(rawEvent, pathHash3ByNodeID)
+			if !ok {
+				continue
+			}
+			packets = append(packets, packet)
+			if len(packets) >= limit {
+				break
+			}
+		}
+		if len(rawEvents) < rawLimit || len(packets) >= limit {
+			break
+		}
+	}
+
+	nextCursorToken := ""
+	if len(packets) >= limit && nextCursor != nil {
+		nextCursorToken = encodeHistoryCursor(*nextCursor)
+	}
+	writeJSON(w, http.StatusOK, live.PublicPacketsResponse{
+		ServerTime: now,
+		Packets:    packets,
+		NextCursor: nextCursorToken,
+		Window: live.PublicHistoryWindow{
+			From:  from,
+			To:    to,
+			Count: len(packets),
+		},
+	})
+	failed = false
+}
+
 func (s *Server) publicLocationIndexes(ctx context.Context) (live.PublicObserverLocationIndex, map[string]string, error) {
 	if s.historyLocations == nil {
 		s.historyLocations = &historyLocationCache{}
@@ -667,6 +761,17 @@ func publicHistoryEvent(
 		return live.PublicHistoryEvent{Type: "routePulse", At: raw.At, Data: pulse}, true
 	}
 	return live.PublicHistoryEvent{}, false
+}
+
+func publicPacketPath(raw store.HistoryEvent, pathHash3ByNodeID map[string]string) (live.PublicPacketPath, bool) {
+	if raw.Type != "routePulse" || raw.Edge == nil {
+		return live.PublicPacketPath{}, false
+	}
+	pulse, ok := live.PublicRoutePulseFromEdge(*raw.Edge, pathHash3ByNodeID)
+	if !ok {
+		return live.PublicPacketPath{}, false
+	}
+	return live.PublicPacketPathFromPulse(pulse)
 }
 
 func publicHistoryWindow(r *http.Request, now int64) (int64, int64) {

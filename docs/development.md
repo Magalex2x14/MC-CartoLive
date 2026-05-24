@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.3.2 VCR, route-copy, phonebook, live-confidence, and route performance checks:
+For v2.4.0 VCR, route-copy, phonebook, live-confidence, true-path packet, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -201,6 +201,7 @@ curl http://localhost:39476/healthz
 curl http://localhost:39476/readyz
 curl http://localhost:39476/api/v1/public/state
 curl "http://localhost:39476/api/v1/public/history?limit=10"
+curl "http://localhost:39476/api/v1/public/packets?limit=10"
 ```
 
 Run a short local soak when validating release automation:
@@ -219,7 +220,7 @@ Use overrides when testing a branch, alternate host, expected build, or another
 diagnostic IATA:
 
 ```powershell
-.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.3.2 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.0 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
 ```
 
 Check privacy before committing:

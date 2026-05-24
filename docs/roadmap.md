@@ -58,9 +58,54 @@ missing-data investigations should be easy to run from the production host.
   smoke, diagnostic smoke, public history, WebSocket, and browser checks.
 - Tag only after privacy regression checks and soak artifacts are reviewed.
 
+## 2.4.0 - True Path Packets API Groundwork
+
+- Add a public-safe packets endpoint backed only by persisted `live_edge_events`
+  that already produced mappable public route segments.
+- Define a true path packet as a routed packet with at least one valid public
+  segment, public IATA allowance, sanitized labels, public route IDs, public
+  endpoint coordinates, and no raw packet hash, raw path hex, full public key,
+  resolver reason, raw payload, or broker metadata.
+- Return stable cursor pagination over the same 24h history window used by VCR
+  replay so the future Packets page can show only real routed packet paths.
+
+## 2.4.1 - Packets Page v1
+
+- Add a top-bar Packets tab with a clean CoreScope-style packet list focused on
+  real paths: time, payload type, IATA, hop/segment count, distance, endpoint
+  labels, and route preview.
+- Keep the page viewer-first: newest packets are easy to scan, selecting a row
+  highlights the exact public route segments on the map, and replaying a row
+  feeds the existing comet animation path.
+- Include filters for time window, IATA, payload type, minimum hops, and message
+  payloads only when backed by sanitized public route events.
+
+## 2.4.2 - Packet Explainability Diagnostics
+
+- Extend local operator diagnostics so a packet can be explained as included,
+  skipped for missing route segments, filtered by public IATA, invalid for map,
+  stale/future-dated, or private-only.
+- Keep these explanations local-only through scripts or `mc-diagnose`; do not
+  add an unauthenticated public debug endpoint.
+
+## 2.4.3 - Packets Page Performance And Mobile Polish
+
+- Virtualize or window the packet list if needed, cap fetch sizes, and keep map
+  source updates stable when the Packets tab is open.
+- Make the page readable on 390px mobile without blocking the live map controls,
+  VCR handle, or bottom-right live clock.
+
+## 2.4.4 - Production Gate
+
+- Verify backend tests, frontend tests/build, Docker build, live smoke,
+  `/api/v1/public/packets`, VCR replay, WebSocket, desktop browser, and mobile
+  browser checks before tagging.
+- Run privacy regression checks against public state, history, packets,
+  summary, WebSocket, health, and readiness responses.
+
 ## Non-Goals
 
-- No major public map feature expansion in the 2.3 line.
+- No broad public map feature expansion outside the documented 2.4 Packets page.
 - No public raw packet hashes, raw path hex, full public keys, resolver debug
   fields, private payloads, broker credentials, or operator config.
 - No public admin/debug page unless a later roadmap explicitly adds local-only

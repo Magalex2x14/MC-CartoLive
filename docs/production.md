@@ -98,7 +98,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.3.2 exposes the app version/build in the top project bar. CI builds use
+- Version 2.4.0 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -151,8 +151,8 @@ or observer record.
 
 ## Production Readiness Checklist
 
-- Keep `/healthz`, `/readyz`, `/api/v1/public/state`, `/ws/public`, and public history
-  checks in every deploy smoke test.
+- Keep `/healthz`, `/readyz`, `/api/v1/public/state`, `/api/v1/public/history`,
+  `/api/v1/public/packets`, and `/ws/public` checks in every deploy smoke test.
 - Track websocket fanout, WebSocket queue drops, MQTT connectivity, MQTT last
   message age, packet ingest freshness, public cache age, route/observer motion,
   public history latency/errors, SQLite read/write errors, and static asset

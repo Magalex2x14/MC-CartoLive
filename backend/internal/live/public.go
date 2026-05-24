@@ -94,6 +94,28 @@ type PublicRoutePulse struct {
 	Segments        []PublicRouteSegment `json:"segments"`
 }
 
+type PublicPacketPath struct {
+	ID              string               `json:"id"`
+	At              int64                `json:"at"`
+	IATA            string               `json:"iata,omitempty"`
+	PayloadTypeName string               `json:"payloadTypeName"`
+	MessageSender   string               `json:"messageSender,omitempty"`
+	MessageText     string               `json:"messageText,omitempty"`
+	HopCount        int                  `json:"hopCount"`
+	SegmentCount    int                  `json:"segmentCount"`
+	DistanceKM      float64              `json:"distanceKm"`
+	RouteIDs        []string             `json:"routeIds"`
+	EndpointLabels  []string             `json:"endpointLabels"`
+	Segments        []PublicRouteSegment `json:"segments"`
+}
+
+type PublicPacketsResponse struct {
+	ServerTime int64               `json:"serverTime"`
+	Packets    []PublicPacketPath  `json:"packets"`
+	NextCursor string              `json:"nextCursor,omitempty"`
+	Window     PublicHistoryWindow `json:"window"`
+}
+
 type PublicStats struct {
 	Packets           int64                       `json:"packets"`
 	ActiveNodes       int64                       `json:"activeNodes"`
@@ -321,6 +343,45 @@ func PublicRoutePulseFromEdge(edge EdgeEvent, pathHash3Indexes ...map[string]str
 		HeardAt:         edge.HeardAt,
 		Segments:        segments,
 	}, len(labels) > 0
+}
+
+func PublicPacketPathFromPulse(pulse PublicRoutePulse) (PublicPacketPath, bool) {
+	if len(pulse.Segments) == 0 {
+		return PublicPacketPath{}, false
+	}
+	segments := make([]PublicRouteSegment, 0, len(pulse.Segments))
+	routeIDs := make([]string, 0, len(pulse.Segments))
+	labels := make([]string, 0, len(pulse.Segments)+1)
+	var distance float64
+	for index, segment := range pulse.Segments {
+		if !validPublicCoords(segment.From.Lat, segment.From.Lng) || !validPublicCoords(segment.To.Lat, segment.To.Lng) {
+			continue
+		}
+		segments = append(segments, segment)
+		routeIDs = append(routeIDs, segment.RouteID)
+		distance += segment.DistanceKM
+		if index == 0 {
+			labels = append(labels, segment.From.Label)
+		}
+		labels = append(labels, segment.To.Label)
+	}
+	if len(segments) == 0 {
+		return PublicPacketPath{}, false
+	}
+	return PublicPacketPath{
+		ID:              strings.TrimSpace(pulse.ID),
+		At:              pulse.HeardAt,
+		IATA:            strings.ToUpper(strings.TrimSpace(pulse.IATA)),
+		PayloadTypeName: strings.TrimSpace(pulse.PayloadTypeName),
+		MessageSender:   publicMessageSender(pulse.MessageSender),
+		MessageText:     publicMessageText(pulse.MessageText),
+		HopCount:        len(segments),
+		SegmentCount:    len(segments),
+		DistanceKM:      distance,
+		RouteIDs:        uniqueSorted(routeIDs),
+		EndpointLabels:  uniqueConsecutive(labels),
+		Segments:        segments,
+	}, true
 }
 
 func PublicActivityFromEdge(edge EdgeEvent) (PublicActivity, bool) {

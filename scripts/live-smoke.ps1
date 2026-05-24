@@ -150,6 +150,11 @@ try {
   Assert-Smoke ($history.window.to -ge $history.window.from) "public history window was invalid"
   Write-Pass "public history window count=$($history.window.count)"
 
+  $packets = Invoke-RestMethod "$BaseUrl/api/v1/public/packets?from=$from&to=$now&limit=25"
+  Assert-Smoke ($null -ne $packets.window) "public packets did not include a window"
+  Assert-Smoke ($packets.window.to -ge $packets.window.from) "public packets window was invalid"
+  Write-Pass "public packets window count=$($packets.window.count)"
+
   $hello = Get-WebSocketHello $BaseUrl
   Assert-Smoke ([string]$hello.type -eq "hello") "WebSocket first frame was $($hello.type), expected hello"
   Assert-Smoke ($hello.seq -gt 0) "WebSocket hello sequence was not positive"
@@ -178,6 +183,7 @@ try {
     publicCacheState = $health.publicCacheState
     liveConfidenceState = $health.liveConfidenceState
     historyEvents = $history.window.count
+    packetPaths = $packets.window.count
     websocketType = $hello.type
     remoteTarget = $SshTarget
     diagnoseIata = $DiagnoseIata

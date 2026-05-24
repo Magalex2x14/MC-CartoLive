@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.3.0 - 2026-05-24
+
+- Started the 2.3 operator-confidence roadmap while keeping public map features stable.
+- Added local release-soak scripts for Windows and Linux/macOS that poll health, readiness, public state, and public history over time.
+- Expanded release-check output with live-confidence fields so operators can verify packet ingest, cache, and map motion states from one command.
+- Updated the operator runbook, production notes, README, and roadmap around repeatable smoke checks, soak artifacts, and the 24h production candidate gate.
+
 ## 2.2.5 - 2026-05-24
 
 - Completed the 2.2.0-2.2.5 live-confidence roadmap as an internal-first reliability pass.

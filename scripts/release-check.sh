@@ -29,3 +29,5 @@ echo "health:  /tmp/mc-cartolive-health.json"
 echo "ready:   /tmp/mc-cartolive-ready.json"
 echo "state:   /tmp/mc-cartolive-state.json"
 echo "history: /tmp/mc-cartolive-history.json"
+echo "live confidence:"
+grep -Eo '"(packetIngestState|publicCacheState|mapMotionState|liveConfidenceState)":"[^"]+"' /tmp/mc-cartolive-health.json || true

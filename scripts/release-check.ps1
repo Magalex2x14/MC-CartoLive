@@ -44,6 +44,12 @@ try {
     Nodes = $state.stats.activeNodes
     Routes = $state.stats.activeRoutes
     HistoryEvents = $history.window.count
+    PacketIngestState = $health.packetIngestState
+    PublicCacheState = $health.publicCacheState
+    MapMotionState = $health.mapMotionState
+    LiveConfidenceState = $health.liveConfidenceState
+    PacketIngestFresh = $health.packetIngestFresh
+    PublicLiveFresh = $health.publicLiveFresh
     GitSha = $health.gitSha
     BuildTime = $health.buildTime
   } | Format-List

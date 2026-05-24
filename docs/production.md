@@ -98,7 +98,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.2.5 exposes the app version/build in the top project bar. CI builds use
+- Version 2.3.0 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -167,6 +167,9 @@ or observer record.
   Legend under Search, map toggles, palette contrast, and replay history.
 - Run `scripts/release-check.ps1` on Windows or `scripts/release-check.sh` on
   Linux/macOS before tagging or after deploying.
+- Run `scripts/soak-check.ps1` or `scripts/soak-check.sh` for short post-deploy
+  validation and for the 24h production-candidate soak. Keep the NDJSON artifact
+  with release notes when tagging a production candidate.
 
 ## Troubleshooting
 

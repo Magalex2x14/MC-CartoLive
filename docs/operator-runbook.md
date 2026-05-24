@@ -33,6 +33,27 @@ On Windows:
 .\scripts\release-check.ps1 -BaseUrl http://127.0.0.1:39476
 ```
 
+## Soak Check
+
+Use a short soak after deploys and a 24h soak before production-candidate tags.
+The scripts write local NDJSON artifacts and do not send telemetry anywhere.
+
+Linux/macOS:
+
+```bash
+BASE_URL=https://carto.canadaverse.org DURATION_MINUTES=1440 INTERVAL_SECONDS=60 scripts/soak-check.sh
+```
+
+Windows:
+
+```powershell
+.\scripts\soak-check.ps1 -BaseUrl https://carto.canadaverse.org -DurationMinutes 1440 -IntervalSeconds 60
+```
+
+The soak fails after repeated bad samples. Normal quiet route periods may show
+`mapMotionState=quiet`; failures are based on degraded live confidence, stale
+packet ingest, stale public cache, HTTP failures, or decreasing packet totals.
+
 ## Diagnose Missing Nodes Or Observers
 
 Run the local diagnostic command from the backend folder:

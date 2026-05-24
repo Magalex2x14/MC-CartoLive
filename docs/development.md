@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.2.5 VCR, route-copy, phonebook, live-confidence, and route performance checks:
+For v2.3.0 VCR, route-copy, phonebook, live-confidence, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -201,6 +201,12 @@ curl http://localhost:39476/healthz
 curl http://localhost:39476/readyz
 curl http://localhost:39476/api/v1/public/state
 curl "http://localhost:39476/api/v1/public/history?limit=10"
+```
+
+Run a short local soak when validating release automation:
+
+```powershell
+.\scripts\soak-check.ps1 -BaseUrl http://127.0.0.1:39476 -DurationMinutes 10 -IntervalSeconds 30
 ```
 
 Check privacy before committing:

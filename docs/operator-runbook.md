@@ -44,6 +44,12 @@ go run ./cmd/diagnose --db ../data/meshcore-live.db --name Krabs --public-iatas 
 go run ./cmd/diagnose --db ../data/meshcore-live.db --name Corebot --public-iatas "$PUBLIC_IATAS"
 ```
 
+On the production Docker host, use the bundled container binary:
+
+```bash
+docker compose exec meshcore-live-map /app/mc-diagnose --db /app/data/meshcore-live.db --iata YTR --public-iatas "$PUBLIC_IATAS"
+```
+
 Map reasons:
 
 - `mappable`: valid public coordinate and not filtered.

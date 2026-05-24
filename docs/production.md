@@ -125,6 +125,12 @@ go run ./cmd/diagnose --db ../data/meshcore-live.db --iata YTR --public-iatas "$
 go run ./cmd/diagnose --db ../data/meshcore-live.db --name Krabs --public-iatas "$PUBLIC_IATAS"
 ```
 
+On a Docker host, run the bundled diagnostic binary inside the container:
+
+```bash
+docker compose exec meshcore-live-map /app/mc-diagnose --db /app/data/meshcore-live.db --iata YTR --public-iatas "$PUBLIC_IATAS"
+```
+
 The report uses the same mappability reasons as the public-state builder:
 `mappable`, `missing_coords`, `zero_coords`, `outside_bounds`, and
 `iata_filtered`.

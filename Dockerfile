@@ -30,7 +30,8 @@ WORKDIR /src/backend
 RUN go mod download
 COPY backend/ ./
 COPY --from=webbuild /web/dist ./internal/api/static
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/meshcore-live ./cmd/app
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/meshcore-live ./cmd/app \
+  && CGO_ENABLED=0 GOOS=linux go build -o /out/mc-diagnose ./cmd/diagnose
 
 # runtime
 FROM alpine:3.22
@@ -41,6 +42,7 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN adduser -D -h /app appuser
 WORKDIR /app
 COPY --from=gobuild /out/meshcore-live /app/meshcore-live
+COPY --from=gobuild /out/mc-diagnose /app/mc-diagnose
 RUN mkdir -p /app/data/fixtures && chown -R appuser:appuser /app
 ENV APP_VERSION=$APP_VERSION
 ENV GIT_SHA=$VITE_GIT_SHA

@@ -12,6 +12,10 @@ services:
       - "39476:8080"
     env_file:
       - .env
+    environment:
+      APP_VERSION: ${APP_VERSION:-2.1.10}
+      GIT_SHA: ${VITE_GIT_SHA:-}
+      BUILD_TIME: ${VITE_BUILD_TIME:-}
     volumes:
       - ./data:/app/data
       - ./examples:/app/examples:ro

@@ -11,6 +11,18 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+func StaticReady() bool {
+	sub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return false
+	}
+	if _, err := fs.Stat(sub, "index.html"); err == nil {
+		return true
+	}
+	_, err = fs.Stat(sub, "placeholder.txt")
+	return err == nil
+}
+
 func StaticHandler(w http.ResponseWriter, r *http.Request) {
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {

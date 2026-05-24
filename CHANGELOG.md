@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 2.1.5 - 2026-05-24
+
+- Completed the 2.1 production-readiness hardening rollup while keeping the 2.1.0 feature set frozen.
+- Added `/readyz` readiness checks beside cheap `/healthz` liveness, with public-safe cache age, DB readiness, static asset, MQTT, WebSocket, version, build, and API latency counters.
+- Added lightweight runtime counters for public state/history/summary requests, public cache refresh failures, WebSocket queue drops, WebSocket ping failures, MQTT reconnects, dropped messages, malformed topics, and last MQTT message age.
+- Reduced VCR history pressure by caching public node/observer lookup indexes and short-lived timeline summary responses while preserving the existing live-safe SQLite indexes.
+- Added request-scoped timeouts to public state/history reads so overloaded DB work fails cleanly instead of hanging public handlers.
+- Kept the public packet total tied to the real DB packet count even when public cache refreshes degrade under load, and filtered future-dated packet observations out of recent live snapshots.
+- Hardened WebSocket reconnects with bounded jitter/backoff and explicit `recovering` state, and refreshed public snapshots after reconnect.
+- Batched frontend MapLibre source updates behind animation frames, capped VCR replay queues, paused packet canvas work while tabs are hidden, and exposed opt-in browser-local performance counters.
+- Expanded production, development, and privacy docs with `/readyz`, smoke checks, runtime counter guidance, SQLite backup/checkpoint notes, and public operational privacy boundaries.
+
 ## 2.1.0 - 2026-05-23
 
 - Compact the VCR into a shorter bottom control surface while preserving hover timestamp, replay speed, missed comet replay, and mobile-safe offsets.

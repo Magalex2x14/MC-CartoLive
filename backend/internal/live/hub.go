@@ -21,6 +21,9 @@ type Hub struct {
 	clients       map[*client]struct{}
 	upgrader      websocket.Upgrader
 	seq           atomic.Int64
+	totalDropped  atomic.Int64
+	queueHigh     atomic.Int64
+	pingFailures  atomic.Int64
 	displayMu     sync.Mutex
 	nextDisplayAt int64
 }
@@ -77,10 +80,12 @@ func (h *Hub) Broadcast(event string, data any) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
+		h.observeQueueDepth(len(c.send))
 		select {
 		case c.send <- env:
 		default:
 			c.dropped++
+			h.totalDropped.Add(1)
 			now := time.Now().UnixMilli()
 			lag := Envelope{Version: 1, Type: "lagged", Seq: h.seq.Add(1), ServerTime: now, ReceivedAt: now, DisplayAt: now, DroppedCount: c.dropped, Since: c.created.UnixMilli()}
 			select {
@@ -127,6 +132,50 @@ func (h *Hub) ClientCount() int {
 	return len(h.clients)
 }
 
+type HubStats struct {
+	Clients         int   `json:"clients"`
+	QueueSize       int   `json:"queueSize"`
+	QueueHighWater  int64 `json:"queueHighWater"`
+	DroppedMessages int64 `json:"droppedMessages"`
+	PingFailures    int64 `json:"pingFailures"`
+	OldestClientMs  int64 `json:"oldestClientMs"`
+}
+
+func (h *Hub) Stats() HubStats {
+	if h == nil {
+		return HubStats{}
+	}
+	now := time.Now()
+	stats := HubStats{
+		QueueSize:       h.queueSize,
+		QueueHighWater:  h.queueHigh.Load(),
+		DroppedMessages: h.totalDropped.Load(),
+		PingFailures:    h.pingFailures.Load(),
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	stats.Clients = len(h.clients)
+	for c := range h.clients {
+		age := now.Sub(c.created).Milliseconds()
+		if age > stats.OldestClientMs {
+			stats.OldestClientMs = age
+		}
+	}
+	return stats
+}
+
+func (h *Hub) observeQueueDepth(depth int) {
+	for {
+		current := h.queueHigh.Load()
+		if int64(depth) <= current {
+			return
+		}
+		if h.queueHigh.CompareAndSwap(current, int64(depth)) {
+			return
+		}
+	}
+}
+
 func (h *Hub) remove(c *client) {
 	h.mu.Lock()
 	if _, ok := h.clients[c]; ok {
@@ -156,6 +205,7 @@ func (h *Hub) writePump(c *client) {
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				h.pingFailures.Add(1)
 				return
 			}
 		}

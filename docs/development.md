@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.1.0 VCR, route-copy, phonebook, and route performance checks:
+For v2.1.5 VCR, route-copy, phonebook, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -136,6 +136,8 @@ For v2.1.0 VCR, route-copy, phonebook, and route performance checks:
   update without route lines stuttering or route-hover glow work returning.
 - Watch a bursty live period or reconnect the websocket and confirm packet
   counters/comets tick through the burst instead of landing in one frame.
+- Force a WebSocket reconnect and confirm the status moves through recovering,
+  refreshes the public snapshot, and resumes packet comets without duplicates.
 - Below zoom 7.08, confirm clusters are the only node/route visual and cluster
   role badges glow subtly on fresh activity.
 - At zoom 7.08 and above, confirm nodes and routes appear together, ordinary
@@ -151,6 +153,9 @@ For v2.1.0 VCR, route-copy, phonebook, and route performance checks:
   same live-map paths.
 - Scrub the VCR timeline in the last 24h, start replay from that point, and
   confirm Live Follow stays disabled until returning to Live.
+- Set `localStorage.setItem('mc-cartolive-debug-perf', '1')` in a browser
+  console, reload, and inspect `window.__mcCartoLivePerf` while animating routes.
+  Counters are browser-local only and must not be sent over the network.
 - Confirm Search and compact Legend open top-left without overlap, Busy
   Pathways is hidden by default, and the Panels menu restores each panel.
 - Switch dark/light mode and several palettes; verify links, Legend, VCR, and
@@ -180,6 +185,15 @@ npm run build
 
 ```bash
 docker compose build
+```
+
+Smoke check a built container:
+
+```bash
+curl http://localhost:39476/healthz
+curl http://localhost:39476/readyz
+curl http://localhost:39476/api/v1/public/state
+curl "http://localhost:39476/api/v1/public/history?limit=10"
 ```
 
 Check privacy before committing:

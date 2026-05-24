@@ -4,6 +4,7 @@ import type { PublicMessageAnchor, PublicNode, PublicObserverBurst, PublicRoute,
 import { routeAssetIcons } from '../assets/routes/assets';
 import { parseSharedView, type MapViewState, type SharedViewState } from '../shareView';
 import { normalizePayloadType, payloadVisual } from '../payloadVisuals';
+import { recordSourceUpdate } from '../perfDiagnostics';
 import { isMappableNode } from './geo';
 import { shouldAnimateLiveEvent } from './animationSafety';
 import {
@@ -989,6 +990,7 @@ export default function CanadaMap({
   const nodeLabelFrameRef = useRef<number | null>(null);
   const messageBubbleCleanupTimersRef = useRef<Map<string, number>>(new Map());
   const pageHiddenRef = useRef(typeof document !== 'undefined' ? document.hidden : false);
+  const pausedRef = useRef(paused);
   const initialViewRef = useRef(initialView);
   const baseModeRef = useRef<MapBaseMode>(baseMode);
   const nodesRef = useRef(nodes);
@@ -1117,9 +1119,11 @@ export default function CanadaMap({
   useEffect(() => {
     const handleVisibility = () => {
       pageHiddenRef.current = document.hidden;
-      if (!document.hidden) return;
-      animatorRef.current?.clear();
-      setMessageBubbles([]);
+      animatorRef.current?.setPaused(document.hidden || pausedRef.current);
+      if (document.hidden) {
+        animatorRef.current?.clear();
+        setMessageBubbles([]);
+      }
     };
     handleVisibility();
     document.addEventListener('visibilitychange', handleVisibility);
@@ -1388,7 +1392,8 @@ export default function CanadaMap({
   }, [routes, selectedRouteID, nodeFocus]);
 
   useEffect(() => {
-    animatorRef.current?.setPaused(paused);
+    pausedRef.current = paused;
+    animatorRef.current?.setPaused(paused || pageHiddenRef.current);
   }, [paused]);
 
   useEffect(() => {
@@ -2697,9 +2702,36 @@ function updateRouteRendering(
   }
 }
 
+interface SourceUpdateQueue {
+  frame: number;
+  pending: Map<string, FeatureCollection>;
+}
+
+const sourceUpdateQueues = new WeakMap<maplibregl.Map, SourceUpdateQueue>();
+
 function setSourceData(map: maplibregl.Map, sourceID: string, data: FeatureCollection) {
+  let queue = sourceUpdateQueues.get(map);
+  if (!queue) {
+    queue = { frame: 0, pending: new Map() };
+    sourceUpdateQueues.set(map, queue);
+  }
+  queue.pending.set(sourceID, data);
+  if (queue.frame !== 0) return;
+  queue.frame = window.requestAnimationFrame(() => {
+    queue.frame = 0;
+    const pending = [...queue.pending.entries()];
+    queue.pending.clear();
+    for (const [queuedSourceID, queuedData] of pending) {
+      applySourceData(map, queuedSourceID, queuedData);
+    }
+  });
+}
+
+function applySourceData(map: maplibregl.Map, sourceID: string, data: FeatureCollection) {
   const source = map.getSource(sourceID) as maplibregl.GeoJSONSource | undefined;
-  source?.setData(data as any);
+  if (!source) return;
+  source.setData(data as any);
+  recordSourceUpdate(sourceID);
 }
 
 function mapViewFromMap(map: maplibregl.Map): MapViewState {

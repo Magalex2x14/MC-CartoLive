@@ -8,6 +8,8 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -26,8 +28,12 @@ type Application struct {
 	Hub         *live.Hub
 	PublicHub   *live.Hub
 	PublicCache *live.PublicStateCache
+	Runtime     *live.RuntimeStats
 	MQTT        *imqtt.Client
 	Resolver    *resolve.Resolver
+
+	cacheRefreshMu sync.Mutex
+	packetCount    atomic.Int64
 }
 
 type yamlConfig struct {
@@ -61,7 +67,7 @@ func NewApplication(ctx context.Context, cfg Config, log *slog.Logger) (*Applica
 	publicHub := live.NewHub(log, cfg.WSClientQueueSize, cfg.PublicBaseURL)
 	publicCache := live.NewPublicStateCache(live.NewPublicIATAFilter(publicIATAs(cfg.PublicIATAs, yc)))
 	resolver := resolve.New(st, yc.ForwarderRoles)
-	app := &Application{Config: cfg, Log: log, Store: st, Hub: hub, PublicHub: publicHub, PublicCache: publicCache, Resolver: resolver}
+	app := &Application{Config: cfg, Log: log, Store: st, Hub: hub, PublicHub: publicHub, PublicCache: publicCache, Runtime: live.NewRuntimeStats(), Resolver: resolver}
 	app.MQTT = imqtt.NewClient(imqtt.ClientConfig{
 		Enabled:   cfg.MQTTEnabled,
 		BrokerURL: cfg.MQTTBrokerURL,
@@ -89,9 +95,16 @@ func (a *Application) Start(ctx context.Context) error {
 		"distanceGateKm", a.Config.MaxUnverifiedEdgeKM,
 		"mqttQueueSize", a.Config.MQTTIngestQueueSize,
 	)
-	if err := a.RefreshPublicStateCache(ctx); err != nil {
-		a.Log.Warn("public state cache warm failed", "error", err)
-	}
+	dbInfo := a.Store.RuntimeInfo(ctx)
+	a.Log.Info("sqlite runtime",
+		"path", dbInfo.Path,
+		"journalMode", dbInfo.JournalMode,
+		"busyTimeoutMs", dbInfo.BusyTimeout,
+		"maxOpenConns", dbInfo.MaxOpenConns,
+	)
+	go a.refreshPacketCountOnce(ctx)
+	go a.refreshPacketCountLoop(ctx)
+	go a.refreshPublicStateCacheOnce(ctx, "warm")
 	go a.refreshPublicStateCacheLoop(ctx)
 	if err := a.MQTT.Start(ctx); err != nil {
 		a.Log.Error("mqtt start failed", "error", err)
@@ -449,29 +462,44 @@ func (a *Application) logCounters(ctx context.Context) {
 				"observations_unresolved", stats.Unresolved,
 				"edge_events_emitted", stats.EdgeEvents,
 				"ws_clients", a.Hub.ClientCount(),
+				"public_ws_clients", a.PublicHub.ClientCount(),
+				"public_ws_dropped", a.PublicHub.Stats().DroppedMessages,
+				"cache_refresh_failures", a.Runtime.Snapshot().CacheRefreshFailures,
 			)
 		}
 	}
 }
 
 func (a *Application) RefreshPublicStateCache(ctx context.Context) error {
+	start := time.Now()
+	failed := true
+	defer func() {
+		a.Runtime.RecordCacheRefresh(time.Since(start), failed)
+	}()
 	state, err := a.Store.LiveState(ctx, a.Config.RecentPacketLimit, a.Config.RecentEdgeEventLimit)
 	if err != nil {
 		return err
 	}
 	filtered, excluded := a.PublicCache.FilterState(state)
-	stats, err := a.Store.Stats(ctx)
-	if err != nil {
-		return err
-	}
-	publicState := live.BuildPublicLiveState(filtered, live.PublicStats{
-		Packets:       stats.Packets,
+	publicStats := live.PublicStats{
+		Packets:       int64(len(filtered.RecentPackets)),
 		MQTTConnected: a.MQTT.Connected(),
 		MQTTMessages:  a.MQTT.TotalMessages(),
 		WSClients:     a.Hub.ClientCount() + a.PublicHub.ClientCount(),
 		ServerTime:    time.Now().UnixMilli(),
-	})
+	}
+	if count := a.packetCount.Load(); count > 0 {
+		publicStats.Packets = count
+	}
+	if stats, err := a.Store.Stats(ctx); err == nil {
+		publicStats.Packets = stats.Packets
+		a.packetCount.Store(stats.Packets)
+	} else {
+		a.Log.Warn("public state stats refresh failed; publishing live cache with derived stats", "error", err)
+	}
+	publicState := live.BuildPublicLiveState(filtered, publicStats)
 	a.PublicCache.Replace(publicState, excluded)
+	failed = false
 	return nil
 }
 
@@ -487,11 +515,63 @@ func (a *Application) refreshPublicStateCacheLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := a.RefreshPublicStateCache(ctx); err != nil {
-				a.Log.Warn("public state cache refresh failed", "error", err)
-			}
+			a.refreshPublicStateCacheOnce(ctx, "refresh")
 		}
 	}
+}
+
+func (a *Application) refreshPublicStateCacheOnce(ctx context.Context, phase string) {
+	if !a.cacheRefreshMu.TryLock() {
+		a.Log.Debug("public state cache refresh skipped; refresh already running", "phase", phase)
+		return
+	}
+	defer a.cacheRefreshMu.Unlock()
+	timeout := time.Duration(a.Config.PublicCacheRefreshSec) * time.Second
+	if timeout < 30*time.Second {
+		timeout = 30 * time.Second
+	}
+	if timeout > 60*time.Second {
+		timeout = 60 * time.Second
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := a.RefreshPublicStateCache(refreshCtx); err != nil {
+		a.Log.Warn("public state cache refresh failed", "phase", phase, "error", err)
+	}
+}
+
+func (a *Application) refreshPacketCountLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.refreshPacketCountOnce(ctx)
+		}
+	}
+}
+
+func (a *Application) refreshPacketCountOnce(ctx context.Context) {
+	countCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-done:
+		}
+	}()
+	defer close(done)
+	count, err := a.Store.PacketCount(countCtx)
+	if err != nil {
+		a.Log.Warn("packet count refresh failed", "error", err)
+		return
+	}
+	a.packetCount.Store(count)
+	a.PublicCache.SetPacketCount(count)
 }
 
 func loadYAMLConfig(path string, log *slog.Logger) yamlConfig {

@@ -1,0 +1,108 @@
+package tests
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"meshcore-canada-live-map/backend/internal/api"
+	"meshcore-canada-live-map/backend/internal/live"
+	"meshcore-canada-live-map/backend/internal/store"
+)
+
+func TestHealthzIncludesPublicSafeOperationalFields(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	cache := live.NewPublicStateCache(live.NewPublicIATAFilter([]string{"YYZ"}))
+	cache.Replace(live.PublicLiveState{
+		ServerTime: time.Now().UnixMilli(),
+		Stats: live.PublicStats{
+			Packets:      42,
+			ActiveNodes:  3,
+			ActiveRoutes: 2,
+		},
+	}, nil)
+	runtime := live.NewRuntimeStats()
+	runtime.RecordPublicHistory(12*time.Millisecond, false)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server := api.Server{
+		Config:            api.Config{PublicMode: true, AppVersion: "2.1.5", GitSHA: "abcdef1", BuildTime: "2026-05-23T00:00:00Z"},
+		Store:             st,
+		PublicHub:         live.NewHub(log, 4),
+		Runtime:           runtime,
+		MQTTConnected:     func() bool { return true },
+		MQTTTotal:         func() int64 { return 77 },
+		PublicState:       cache.Snapshot,
+		PublicCacheStatus: cache.Status,
+	}
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	server.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("healthz status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"cacheAgeMs", "mqttConnected", "wsDroppedMessages", "publicStateReady", "dbReady", "version", "gitSha", "buildTime", "publicHistoryRequests"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("healthz missing %q in %#v", key, payload)
+		}
+	}
+	if payload["version"] != "2.1.5" || payload["gitSha"] != "abcdef1" {
+		t.Fatalf("build metadata = %#v", payload)
+	}
+	raw := response.Body.String()
+	for _, forbidden := range []string{"packetHash", "raw_hex", "publicKey", "pathHex", "resolver"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("healthz leaked forbidden token %q: %s", forbidden, raw)
+		}
+	}
+}
+
+func TestReadyzFailsUntilPublicCacheReady(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cache := live.NewPublicStateCache(live.NewPublicIATAFilter(nil))
+	server := api.Server{
+		Config:            api.Config{PublicMode: true},
+		Store:             st,
+		PublicHub:         live.NewHub(log, 4),
+		PublicState:       cache.Snapshot,
+		PublicCacheStatus: cache.Status,
+		MQTTConnected:     func() bool { return false },
+		MQTTTotal:         func() int64 { return 0 },
+	}
+
+	notReady := httptest.NewRecorder()
+	server.Routes().ServeHTTP(notReady, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if notReady.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz before cache = %d body=%s", notReady.Code, notReady.Body.String())
+	}
+
+	cache.Replace(live.PublicLiveState{ServerTime: time.Now().UnixMilli()}, nil)
+	ready := httptest.NewRecorder()
+	server.Routes().ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if ready.Code != http.StatusOK {
+		t.Fatalf("readyz after cache = %d body=%s", ready.Code, ready.Body.String())
+	}
+}

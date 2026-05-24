@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.1.0
+# MeshCore MQTT Live Map v2.1.5
 
 Also known as **MC-CartoLive**.
 
@@ -43,6 +43,7 @@ palette swatches.
 - Keeps route lines passive on the map so dense RF paths do not steal clicks from nodes.
 - Optimizes dense route rendering for slower computers by avoiding unnecessary full route redraws and rendering live route glow only for active routes.
 - Paces live websocket bursts so packet counters, observer bursts, and routed comets keep moving smoothly instead of arriving as one visual clump.
+- Hardens WebSocket reconnects with bounded jitter/backoff and snapshot recovery so public map motion resumes after transient network drops.
 - Adds a searchable reachable-node phonebook that defaults to useful shortest-path routes first, can filter by distance, supports best/shortest/busiest/nearest/recent sorting, highlights a selected multi-hop path, and can copy MeshCore 3-byte route prefixes.
 - Adds a Plot routes control for choosing two node endpoints or two map corners and highlighting matching public RF routes.
 - Shows decoded public chatter history for the selected node when sanitized message text is available in the live window.
@@ -56,6 +57,10 @@ palette swatches.
 - Provides a red Live Follow control for smoothly following areas with fresh packet movement.
 - Prioritizes the map on mobile by hiding secondary panels/toasts and keeping the map, packet animations, live clock, and essential controls readable.
 - Serves public state from a backend memory cache instead of rebuilding every request from SQLite.
+- Adds cheap `/healthz` liveness and `/readyz` readiness checks with public-safe runtime counters for cache age, DB readiness, MQTT status, WebSocket drops, and public history latency.
+- Caches public history location indexes and timeline summary buckets to reduce SQLite pressure from VCR replay and timeline polling.
+- Batches frontend map source updates behind animation frames and pauses packet canvas work while the tab is hidden.
+- Exposes opt-in browser-local performance counters for development without sending telemetry anywhere.
 - Filters public traffic through the Canada IATA allowlist.
 - Keeps private broker credentials, channel secrets, live DB files, packet hashes, full public keys, raw path hex, and resolver debug details out of public responses.
 - Publishes only six-character MeshCore 3-byte route prefixes for route-copy workflows.
@@ -71,6 +76,7 @@ Public routes:
 
 ```text
 GET /healthz
+GET /readyz
 GET /api/v1/public/state
 GET /api/v1/public/history?from=<ms>&to=<ms>&limit=<n>&cursor=<token>
 GET /api/v1/public/history/summary?from=<ms>&to=<ms>&bucketMs=<n>
@@ -178,7 +184,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.1.0 release path is clone + Docker Compose on a VPS or local
+The recommended v2.1.5 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

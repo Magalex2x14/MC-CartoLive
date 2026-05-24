@@ -23,14 +23,21 @@ type ClientConfig struct {
 }
 
 type Client struct {
-	cfg       ClientConfig
-	log       *slog.Logger
-	handler   Handler
-	queue     chan NormalizedMessage
-	connected atomic.Bool
-	total     atomic.Int64
-	dropped   atomic.Int64
-	client    paho.Client
+	cfg                  ClientConfig
+	log                  *slog.Logger
+	handler              Handler
+	queue                chan NormalizedMessage
+	connected            atomic.Bool
+	total                atomic.Int64
+	dropped              atomic.Int64
+	reconnects           atomic.Int64
+	malformed            atomic.Int64
+	internalDropped      atomic.Int64
+	normalizeErrors      atomic.Int64
+	lastMessageAt        atomic.Int64
+	lastConnectedAt      atomic.Int64
+	lastConnectionLostAt atomic.Int64
+	client               paho.Client
 }
 
 func NewClient(cfg ClientConfig, log *slog.Logger, handler Handler) *Client {
@@ -69,10 +76,13 @@ func (c *Client) Start(ctx context.Context) error {
 
 	opts.SetConnectionLostHandler(func(_ paho.Client, err error) {
 		c.connected.Store(false)
+		c.lastConnectionLostAt.Store(time.Now().UnixMilli())
 		c.log.Warn("mqtt connection lost", "error", err)
 	})
 	opts.SetOnConnectHandler(func(client paho.Client) {
 		c.connected.Store(true)
+		c.reconnects.Add(1)
+		c.lastConnectedAt.Store(time.Now().UnixMilli())
 		c.log.Info("mqtt connected", "broker", redactBroker(c.cfg.BrokerURL), "topic", c.cfg.Topic)
 		token := client.Subscribe(c.cfg.Topic, 0, c.onMessage(ctx))
 		token.Wait()
@@ -110,19 +120,23 @@ func (c *Client) onMessage(ctx context.Context) paho.MessageHandler {
 		topic := msg.Topic()
 		info, err := ParseTopic(topic)
 		if err != nil {
+			c.malformed.Add(1)
 			c.log.Debug("mqtt dropped malformed topic", "topic", topic, "error", err)
 			return
 		}
 		if info.Subtopic == "internal" {
+			c.internalDropped.Add(1)
 			c.log.Warn("mqtt internal topic dropped", "iata", info.IATA)
 			return
 		}
 		normalized, err := Normalize(topic, msg.Payload(), time.Now())
 		if err != nil {
+			c.normalizeErrors.Add(1)
 			c.log.Debug("mqtt normalize failed", "topic", topic, "error", err)
 			return
 		}
 		c.total.Add(1)
+		c.lastMessageAt.Store(normalized.HeardAtMs)
 		select {
 		case c.queue <- normalized:
 		default:
@@ -155,6 +169,52 @@ func (c *Client) TotalMessages() int64 {
 
 func (c *Client) DroppedMessages() int64 {
 	return c.dropped.Load()
+}
+
+type Status struct {
+	Enabled              bool  `json:"enabled"`
+	Connected            bool  `json:"connected"`
+	TotalMessages        int64 `json:"totalMessages"`
+	DroppedMessages      int64 `json:"droppedMessages"`
+	Reconnects           int64 `json:"reconnects"`
+	MalformedTopics      int64 `json:"malformedTopics"`
+	InternalDropped      int64 `json:"internalDropped"`
+	NormalizeErrors      int64 `json:"normalizeErrors"`
+	LastMessageAt        int64 `json:"lastMessageAt"`
+	LastMessageAgeMs     int64 `json:"lastMessageAgeMs"`
+	LastConnectedAt      int64 `json:"lastConnectedAt"`
+	LastConnectionLostAt int64 `json:"lastConnectionLostAt"`
+}
+
+func (c *Client) Status(now time.Time) Status {
+	if c == nil {
+		return Status{}
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	lastMessageAt := c.lastMessageAt.Load()
+	age := int64(-1)
+	if lastMessageAt > 0 {
+		age = now.UnixMilli() - lastMessageAt
+		if age < 0 {
+			age = 0
+		}
+	}
+	return Status{
+		Enabled:              c.cfg.Enabled,
+		Connected:            c.Connected(),
+		TotalMessages:        c.TotalMessages(),
+		DroppedMessages:      c.DroppedMessages(),
+		Reconnects:           c.reconnects.Load(),
+		MalformedTopics:      c.malformed.Load(),
+		InternalDropped:      c.internalDropped.Load(),
+		NormalizeErrors:      c.normalizeErrors.Load(),
+		LastMessageAt:        lastMessageAt,
+		LastMessageAgeMs:     age,
+		LastConnectedAt:      c.lastConnectedAt.Load(),
+		LastConnectionLostAt: c.lastConnectionLostAt.Load(),
+	}
 }
 
 func redactBroker(in string) string {

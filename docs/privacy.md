@@ -26,6 +26,13 @@ They must not expose:
 - resolver debug reasons
 - raw packet payloads
 
+Operational endpoints such as `/healthz` and `/readyz` may expose public-safe
+runtime counters only: cache age, DB readiness, MQTT connection status, message
+counts, WebSocket client/drop counts, version, Git SHA, build time, and public
+API latency/error counts. They must not expose broker credentials, topics beyond
+public-safe labels, raw packet identifiers, full keys, raw hex, resolver details,
+or operator config.
+
 The public route API may expose a six-character `pathHash3` for positioned
 route endpoints. This is the 3-byte MeshCore route prefix shown in the mobile
 app's Set Path flow. It is intentionally limited to the route-copy workflow and

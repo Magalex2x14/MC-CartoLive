@@ -11,6 +11,9 @@ import (
 
 type Config struct {
 	ListenAddr              string
+	AppVersion              string
+	GitSHA                  string
+	BuildTime               string
 	PublicBaseURL           string
 	DataDir                 string
 	DBPath                  string
@@ -50,6 +53,9 @@ func LoadConfig() (Config, error) {
 	_ = loadDotEnv(".env")
 	cfg := Config{
 		ListenAddr:              envString("LISTEN_ADDR", ":8080"),
+		AppVersion:              envString("APP_VERSION", "2.1.5"),
+		GitSHA:                  envString("GIT_SHA", envString("VITE_GIT_SHA", "")),
+		BuildTime:               envString("BUILD_TIME", envString("VITE_BUILD_TIME", "")),
 		PublicBaseURL:           envString("PUBLIC_BASE_URL", "http://localhost:8080"),
 		DataDir:                 envString("DATA_DIR", "./data"),
 		DBPath:                  envString("DB_PATH", "./data/meshcore-live.db"),

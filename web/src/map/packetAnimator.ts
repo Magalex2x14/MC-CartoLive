@@ -1,6 +1,7 @@
 import type maplibregl from 'maplibre-gl';
 import type { PublicObserverBurst, PublicRoutePulse } from '../types';
 import { payloadVisual } from '../payloadVisuals';
+import { recordPacketFrame, recordPacketSkippedFrame } from '../perfDiagnostics';
 import { isMappableEndpoint } from './geo';
 
 export const PACKET_SINGLE_HOP_DURATION_MS = 2100;
@@ -183,6 +184,7 @@ export class PacketAnimator {
 
   setPaused(paused: boolean) {
     this.paused = paused;
+    if (!paused) this.requestFrame();
   }
 
   setRouteColors(colors: Map<string, string>) {
@@ -278,7 +280,12 @@ export class PacketAnimator {
   }
 
   private frame(now: number) {
+    const frameStart = performance.now();
     this.raf = 0;
+    if (this.paused) {
+      recordPacketSkippedFrame();
+      return;
+    }
     this.pruneResidue(now);
     this.pulses = this.pulses.filter(({ started, travelDuration, afterglowDuration }) => now - started < travelDuration + afterglowDuration);
     this.observerBursts = this.observerBursts.filter(({ started, duration, afterglowDuration }) => now - started < duration + afterglowDuration);
@@ -290,6 +297,7 @@ export class PacketAnimator {
         this.canvasHasContent = false;
       }
       this.forceNextFrame = false;
+      recordPacketFrame(0, 0, performance.now() - frameStart);
       return;
     }
 
@@ -317,6 +325,7 @@ export class PacketAnimator {
     } else if (hasResidue) {
       this.requestFrame(RESIDUE_IDLE_FRAME_INTERVAL_MS);
     }
+    recordPacketFrame(this.pulses.length, this.observerBursts.length, performance.now() - frameStart);
   }
 
   private pruneResidue(now: number) {

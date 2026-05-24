@@ -45,6 +45,14 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	return stats, nil
 }
 
+func (s *Store) PacketCount(ctx context.Context) (int64, error) {
+	var count int64
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM packets`).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *Store) LiveState(ctx context.Context, packetLimit int, edgeLimit int) (live.State, error) {
 	nodes, err := s.Nodes(ctx, true, "")
 	if err != nil {

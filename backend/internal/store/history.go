@@ -119,6 +119,31 @@ ORDER BY bucket ASC, iata ASC`, from, bucketMs, from, boundedHistoryTo(to))
 	return out, rows.Err()
 }
 
+func (s *Store) PublicHistorySummaryTotals(ctx context.Context, from int64, to int64, bucketMs int64) ([]HistorySummaryRow, error) {
+	if bucketMs <= 0 {
+		bucketMs = int64(time.Hour / time.Millisecond)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT '' AS iata, CAST((heard_at_ms - ?) / ? AS INTEGER) AS bucket, COUNT(*) AS count
+FROM live_edge_events
+WHERE heard_at_ms >= ? AND heard_at_ms <= ?
+GROUP BY bucket
+ORDER BY bucket ASC`, from, bucketMs, from, boundedHistoryTo(to))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HistorySummaryRow{}
+	for rows.Next() {
+		var row HistorySummaryRow
+		if err := rows.Scan(&row.IATA, &row.Bucket, &row.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func scanHistoryEvents(rows *sql.Rows) ([]HistoryEvent, error) {
 	out := []HistoryEvent{}
 	for rows.Next() {

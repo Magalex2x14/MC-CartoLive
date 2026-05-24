@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"strings"
+	"time"
 
 	"meshcore-canada-live-map/backend/internal/live"
 	"meshcore-canada-live-map/backend/internal/meshcore"
@@ -43,13 +44,15 @@ func (s *Store) RecentPackets(ctx context.Context, limit int) ([]live.PacketObse
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
+	maxHeardAt := time.Now().Add(maxFutureEdgeSkew).UnixMilli()
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, packet_hash, payload_type, payload_type_name, route_type, route_type_name,
   observer_name, observer_public_key, iata, heard_at_ms, rssi, snr, score, hash_size,
   hop_count, path_hex, resolution_status, resolution_reason, summary, message_sender, message_text, invalid_for_map
 FROM packet_observations
+WHERE heard_at_ms <= ?
 ORDER BY heard_at_ms DESC, id DESC
-LIMIT ?`, limit)
+LIMIT ?`, maxHeardAt, limit)
 	if err != nil {
 		return nil, err
 	}

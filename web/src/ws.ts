@@ -4,6 +4,16 @@ export interface LiveSocket {
   close: () => void;
 }
 
+export const WS_RECONNECT_BASE_MS = 800;
+export const WS_RECONNECT_MAX_MS = 15_000;
+export const WS_RECONNECT_JITTER_MS = 500;
+
+export function reconnectDelayMs(attempts: number, random = Math.random): number {
+  const attempt = Math.max(0, Math.floor(attempts));
+  const backoff = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * 2 ** Math.min(attempt, 5));
+  return backoff + Math.floor(random() * WS_RECONNECT_JITTER_MS);
+}
+
 export function connectPublicSocket(onMessage: (message: PublicLiveEnvelope) => void, onStatus: (status: string) => void, onOpen?: () => void): LiveSocket {
   if (typeof window.WebSocket !== 'function') {
     onStatus('polling');
@@ -18,7 +28,7 @@ export function connectPublicSocket(onMessage: (message: PublicLiveEnvelope) => 
 
   const connect = () => {
     if (closed) return;
-    onStatus(attempts === 0 ? 'connecting' : 'retry');
+    onStatus(attempts === 0 ? 'connecting' : 'recovering');
     socket = new WebSocket(url);
     socket.addEventListener('open', () => {
       attempts = 0;
@@ -45,9 +55,9 @@ export function connectPublicSocket(onMessage: (message: PublicLiveEnvelope) => 
 
   const scheduleReconnect = () => {
     if (closed || retryTimer !== undefined) return;
-    onStatus('retry');
+    onStatus('recovering');
     attempts += 1;
-    const delay = Math.min(15_000, 800 * 2 ** Math.min(attempts, 5)) + Math.floor(Math.random() * 500);
+    const delay = reconnectDelayMs(attempts);
     retryTimer = window.setTimeout(() => {
       retryTimer = undefined;
       connect();

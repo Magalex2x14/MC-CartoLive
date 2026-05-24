@@ -16,7 +16,8 @@ import (
 var schemaSQL string
 
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -29,7 +30,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.Migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -43,7 +44,7 @@ func OpenMemory(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, path: "file::memory:?cache=shared"}
 	if err := s.Migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -83,6 +84,38 @@ func sqliteDSN(path string) string {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store unavailable")
+	}
+	return s.db.PingContext(ctx)
+}
+
+type RuntimeInfo struct {
+	Path         string `json:"path"`
+	JournalMode  string `json:"journalMode"`
+	BusyTimeout  int    `json:"busyTimeoutMs"`
+	MaxOpenConns int    `json:"maxOpenConns"`
+	OpenConns    int    `json:"openConns"`
+	InUse        int    `json:"inUse"`
+	Idle         int    `json:"idle"`
+}
+
+func (s *Store) RuntimeInfo(ctx context.Context) RuntimeInfo {
+	if s == nil || s.db == nil {
+		return RuntimeInfo{}
+	}
+	info := RuntimeInfo{Path: s.path}
+	_ = s.db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&info.JournalMode)
+	_ = s.db.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&info.BusyTimeout)
+	stats := s.db.Stats()
+	info.MaxOpenConns = stats.MaxOpenConnections
+	info.OpenConns = stats.OpenConnections
+	info.InUse = stats.InUse
+	info.Idle = stats.Idle
+	return info
 }
 
 func nullableFloat(v *float64) sql.NullFloat64 {

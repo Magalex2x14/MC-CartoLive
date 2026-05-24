@@ -58,6 +58,7 @@ import {
   type SelectionState
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
+import { recordVcrReplayQueueSize } from './perfDiagnostics';
 import {
   THEME_PALETTES,
   applyDocumentTheme,
@@ -87,6 +88,9 @@ const PANEL_MENU_ITEMS: readonly { id: ChromePanelID; label: string }[] = [
   { id: 'legend', label: 'Legend' },
   { id: 'hotRoutes', label: 'Busy Pathways' }
 ] as const;
+
+const VCR_MAX_BUFFERED_COMETS = 4000;
+const VCR_MAX_REPLAY_EVENTS = 2000;
 
 export default function App() {
   const sharedViewRef = useRef(parseSharedView(window.location.search));
@@ -162,7 +166,8 @@ export default function App() {
 
   const bufferVcrMessage = useCallback((message: PublicLiveEnvelope) => {
     if (message.type !== 'event' || message.event !== 'routePulse') return;
-    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, message]).slice(-4000);
+    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, message]).slice(-VCR_MAX_BUFFERED_COMETS);
+    recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
     setVcr((current) => ({
       ...current,
       missedCount: vcrBufferedMessagesRef.current.length,
@@ -174,7 +179,8 @@ export default function App() {
     clearPendingLiveFlush();
     if (pendingMessagesRef.current.length === 0) return;
     const routedPending = pendingMessagesRef.current.filter((message) => message.type === 'event' && message.event === 'routePulse');
-    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, ...routedPending]).slice(-4000);
+    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, ...routedPending]).slice(-VCR_MAX_BUFFERED_COMETS);
+    recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
     pendingMessagesRef.current = [];
     setVcr((current) => ({
       ...current,
@@ -189,6 +195,7 @@ export default function App() {
       window.clearTimeout(vcrReplayTimerRef.current);
       vcrReplayTimerRef.current = null;
     }
+    recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
   }, []);
 
   const refreshLiveSnapshot = useCallback(() => {
@@ -212,6 +219,7 @@ export default function App() {
     clearPendingLiveFlush();
     pendingMessagesRef.current = [];
     vcrBufferedMessagesRef.current = [];
+    recordVcrReplayQueueSize(0);
     setVcr((current) => ({ ...current, mode: 'live', missedCount: 0, scrubAt: null, clock: null, status: 'idle' }));
     refreshLiveSnapshot();
   }, [clearPendingLiveFlush, refreshLiveSnapshot, stopReplay]);
@@ -231,7 +239,9 @@ export default function App() {
     }));
   }, [movePendingLiveToVcrBuffer, stopReplay]);
 
-  const playReplayEnvelopes = useCallback((messages: PublicLiveEnvelope[], generation: number, doneMode: 'live' | 'paused') => {
+  const playReplayEnvelopes = useCallback((inputMessages: PublicLiveEnvelope[], generation: number, doneMode: 'live' | 'paused') => {
+    const messages = inputMessages.slice(0, VCR_MAX_REPLAY_EVENTS);
+    recordVcrReplayQueueSize(messages.length);
     let index = 0;
     const runNext = () => {
       if (!shouldApplyPlaybackGeneration(vcrGenerationRef.current, generation)) return;
@@ -239,8 +249,10 @@ export default function App() {
       if (!message) {
         vcrReplayTimerRef.current = null;
         if (doneMode === 'live') {
+          recordVcrReplayQueueSize(0);
           returnToLive();
         } else {
+          recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
           setVcr((current) => ({
             ...current,
             mode: 'paused',
@@ -254,6 +266,7 @@ export default function App() {
       const currentAt = replayEnvelopeClockAt(message);
       setVcr((current) => ({ ...current, mode: 'replay', clock: currentAt, scrubAt: currentAt, status: 'idle' }));
       index += 1;
+      recordVcrReplayQueueSize(Math.max(0, messages.length - index));
       const nextMessage = messages[index];
       if (!nextMessage) {
         vcrReplayTimerRef.current = window.setTimeout(runNext, 260);
@@ -274,6 +287,7 @@ export default function App() {
     setPaused(false);
     setClearToken((value) => value + 1);
     vcrBufferedMessagesRef.current = [];
+    recordVcrReplayQueueSize(0);
     const generation = vcrGenerationRef.current + 1;
     vcrGenerationRef.current = generation;
     setVcr((current) => ({
@@ -296,7 +310,7 @@ export default function App() {
     const generation = vcrGenerationRef.current + 1;
     vcrGenerationRef.current = generation;
     setVcr((current) => ({ ...current, mode: 'replay', status: 'loading', clock: selected, scrubAt: selected }));
-    fetchPublicHistory({ from, to, limit: 2000 })
+    fetchPublicHistory({ from, to, limit: VCR_MAX_REPLAY_EVENTS })
       .then((history) => {
         if (!shouldApplyPlaybackGeneration(vcrGenerationRef.current, generation)) return;
         const routedEvents = history.events.filter((event) => event.type === 'routePulse');

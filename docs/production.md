@@ -42,6 +42,7 @@ Check:
 ```bash
 docker compose ps
 curl http://localhost:39476/healthz
+curl http://localhost:39476/readyz
 curl http://localhost:39476/api/v1/public/state
 ```
 
@@ -97,9 +98,12 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.1.0 exposes the app version/build in the top project bar. CI builds use
+- Version 2.1.5 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
+- Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
+  liveness, while `/readyz` verifies DB ping, public cache readiness, static
+  frontend availability, and public-safe runtime status.
 - Docker Compose forwards optional `VITE_BUILD_NUMBER`, `VITE_GIT_SHA`, and
   `VITE_BUILD_TIME` build args so release builds can link directly to the
   source commit.
@@ -108,7 +112,13 @@ docker compose up -d
 - Keep `PUBLIC_MODE=true` on public hosts.
 - The compose file mounts `./data` read/write and `./examples` read-only.
 - Container logs are rotated by Docker Compose to avoid unbounded local log growth.
-- Health checks use `/healthz`, which reads cached public state when available so SQLite ingest pressure does not make Docker health checks flap.
+- Health checks use `/healthz`, which avoids SQLite reads during normal liveness
+  checks. Use `/readyz` for deployment smoke checks and host monitoring.
+- Public history replay uses cached public location indexes and a short-lived
+  timeline summary cache to reduce SQLite pressure during VCR polling.
+- SQLite runs in WAL mode with a busy timeout. For long-running hosts, keep
+  regular backups and periodically restart/rebuild during maintenance windows
+  if WAL files grow unexpectedly.
 - Route glow, cluster role badges, hover-only ordinary labels, the VCR playback
   surface, live pulse clock, and the Original/OpenFreeMap map toggle use only sanitized public state,
   WebSocket events, and public history endpoints.
@@ -117,9 +127,10 @@ docker compose up -d
 
 ## Production 2.1 Readiness Checklist
 
-- Keep `/healthz`, `/api/v1/public/state`, `/ws/public`, and public history
+- Keep `/healthz`, `/readyz`, `/api/v1/public/state`, `/ws/public`, and public history
   checks in every deploy smoke test.
-- Track websocket fanout, MQTT connectivity, public history latency, SQLite
+- Track websocket fanout, WebSocket queue drops, MQTT connectivity, MQTT last
+  message age, public cache age, public history latency/errors, SQLite
   read/write errors, and static asset serving errors in logs or host monitoring.
 - Back up `data/meshcore-live.db*` before upgrades and document the restore
   path for the host running Docker Compose.

@@ -3,6 +3,7 @@ package live
 import (
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -93,7 +94,14 @@ type PublicStateCache struct {
 	filter    PublicIATAFilter
 	state     PublicLiveState
 	ready     bool
+	updatedAt time.Time
 	anomalies map[string]int64
+}
+
+type PublicCacheStatus struct {
+	Ready      bool  `json:"ready"`
+	UpdatedAt  int64 `json:"updatedAt"`
+	CacheAgeMs int64 `json:"cacheAgeMs"`
 }
 
 func NewPublicStateCache(filter PublicIATAFilter) *PublicStateCache {
@@ -105,6 +113,13 @@ func (c *PublicStateCache) AllowsIATA(iata string) bool {
 		return true
 	}
 	return c.filter.Allows(iata)
+}
+
+func (c *PublicStateCache) RestrictsIATA() bool {
+	if c == nil {
+		return false
+	}
+	return c.filter.enabled
 }
 
 func (c *PublicStateCache) AllowedIATAs(items []string) []string {
@@ -146,6 +161,7 @@ func (c *PublicStateCache) Replace(state PublicLiveState, excluded map[string]in
 	state.Stats.ExcludedIATAs = mergeCounters(excluded, c.anomalies)
 	c.state = copyPublicState(state)
 	c.ready = true
+	c.updatedAt = time.Now()
 	c.mu.Unlock()
 }
 
@@ -159,6 +175,29 @@ func (c *PublicStateCache) Snapshot() (PublicLiveState, bool) {
 		return PublicLiveState{}, false
 	}
 	return copyPublicState(c.state), true
+}
+
+func (c *PublicStateCache) Status(now time.Time) PublicCacheStatus {
+	if c == nil {
+		return PublicCacheStatus{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.ready {
+		return PublicCacheStatus{}
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	age := now.Sub(c.updatedAt).Milliseconds()
+	if age < 0 {
+		age = 0
+	}
+	return PublicCacheStatus{
+		Ready:      true,
+		UpdatedAt:  c.updatedAt.UnixMilli(),
+		CacheAgeMs: age,
+	}
 }
 
 func (c *PublicStateCache) ApplyNode(node PublicNode) {
@@ -179,6 +218,7 @@ func (c *PublicStateCache) ApplyNode(node PublicNode) {
 	}
 	c.state.Nodes = limitPublicNodes(next)
 	c.state.Stats.ActiveNodes = int64(len(c.state.Nodes))
+	c.updatedAt = time.Now()
 }
 
 func (c *PublicStateCache) ApplyActivity(activity PublicActivity) {
@@ -199,6 +239,7 @@ func (c *PublicStateCache) ApplyActivity(activity PublicActivity) {
 		c.state.ServerTime = activity.HeardAt
 		c.state.Stats.ServerTime = activity.HeardAt
 	}
+	c.updatedAt = time.Now()
 }
 
 func (c *PublicStateCache) ApplyRoutePulse(pulse PublicRoutePulse) {
@@ -215,6 +256,20 @@ func (c *PublicStateCache) ApplyRoutePulse(pulse PublicRoutePulse) {
 		c.state.ServerTime = pulse.HeardAt
 		c.state.Stats.ServerTime = pulse.HeardAt
 	}
+	c.updatedAt = time.Now()
+}
+
+func (c *PublicStateCache) SetPacketCount(count int64) {
+	if c == nil || count < 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.ready {
+		return
+	}
+	c.state.Stats.Packets = count
+	c.updatedAt = time.Now()
 }
 
 func allowedIATAs(items []string, filter PublicIATAFilter) []string {

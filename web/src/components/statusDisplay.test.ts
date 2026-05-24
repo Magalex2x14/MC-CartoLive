@@ -23,7 +23,7 @@ describe('status display helpers', () => {
     expect(serverStatus(stats, 'polling', coverage(STALE_PACKET_MS - 1))).toEqual({ label: 'Live', live: true });
     expect(serverStatus(stats, 'live', coverage(STALE_PACKET_MS))).toEqual({ label: 'Stale', live: false });
     expect(serverStatus({ ...stats, mqttConnected: false }, 'live', coverage(1))).toEqual({ label: 'Stale', live: false });
-    expect(serverStatus(stats, 'retry', coverage(1))).toEqual({ label: 'Live', live: true });
+    expect(serverStatus(stats, 'recovering', coverage(1))).toEqual({ label: 'Live', live: true });
     expect(serverStatus(stats, 'state-error', coverage(1))).toEqual({ label: 'Stale', live: false });
     expect(serverStatus(stats, 'live', coverage(null))).toEqual({ label: 'Stale', live: false });
   });

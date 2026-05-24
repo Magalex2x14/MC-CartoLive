@@ -358,10 +358,24 @@ func (s *Store) scanNodes(ctx context.Context, rows *sql.Rows) ([]live.Node, err
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	iatasByPublicKey, err := s.nodeIATAsForPublicKeys(ctx, nodePublicKeys(out))
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
-		out[i].IATAsHeardIn, _ = s.nodeIATAs(ctx, out[i].PublicKey)
+		out[i].IATAsHeardIn = iatasByPublicKey[strings.ToUpper(out[i].PublicKey)]
 	}
 	return out, nil
+}
+
+func nodePublicKeys(nodes []live.Node) []string {
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if node.PublicKey != "" {
+			out = append(out, node.PublicKey)
+		}
+	}
+	return out
 }
 
 func (s *Store) upsertNodeIATA(ctx context.Context, publicKey, iata string, seenAt int64) error {
@@ -410,6 +424,44 @@ func (s *Store) nodeIATAs(ctx context.Context, publicKey string) ([]string, erro
 		out = append(out, iata)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) nodeIATAsForPublicKeys(ctx context.Context, publicKeys []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	const chunkSize = 500
+	for start := 0; start < len(publicKeys); start += chunkSize {
+		end := start + chunkSize
+		if end > len(publicKeys) {
+			end = len(publicKeys)
+		}
+		chunk := publicKeys[start:end]
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
+		args := make([]any, 0, len(chunk))
+		for _, publicKey := range chunk {
+			args = append(args, publicKey)
+		}
+		rows, err := s.db.QueryContext(ctx, `SELECT public_key, iata FROM node_iatas WHERE public_key IN (`+placeholders+`) ORDER BY public_key, iata`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var publicKey string
+			var iata string
+			if err := rows.Scan(&publicKey, &iata); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			out[strings.ToUpper(publicKey)] = append(out[strings.ToUpper(publicKey)], iata)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func firstPayloadString(m map[string]any, keys ...string) string {

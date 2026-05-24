@@ -53,7 +53,7 @@ func LoadConfig() (Config, error) {
 	_ = loadDotEnv(".env")
 	cfg := Config{
 		ListenAddr:              envString("LISTEN_ADDR", ":8080"),
-		AppVersion:              envString("APP_VERSION", "2.4.0"),
+		AppVersion:              envString("APP_VERSION", "2.4.1"),
 		GitSHA:                  envString("GIT_SHA", envString("VITE_GIT_SHA", "")),
 		BuildTime:               envString("BUILD_TIME", envString("VITE_BUILD_TIME", "")),
 		PublicBaseURL:           envString("PUBLIC_BASE_URL", "http://localhost:8080"),

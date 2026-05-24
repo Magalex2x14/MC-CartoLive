@@ -1,4 +1,4 @@
-import type { PublicHistoryResponse, PublicHistorySummaryResponse, PublicLiveState, RuntimeHealth } from './types';
+import type { PublicHistoryResponse, PublicHistorySummaryResponse, PublicLiveState, PublicPacketsResponse, RuntimeHealth } from './types';
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -35,6 +35,18 @@ export function fetchPublicHistory({ from, to, limit, cursor }: PublicHistoryPar
   if (limit !== undefined) params.set('limit', Math.round(limit).toString());
   if (cursor) params.set('cursor', cursor);
   return getJSON<PublicHistoryResponse>(`/api/v1/public/history?${params.toString()}`);
+}
+
+export type PublicPacketsParams = PublicHistoryParams;
+
+export function fetchPublicPackets({ from, to, limit, cursor }: PublicPacketsParams): Promise<PublicPacketsResponse> {
+  const params = new URLSearchParams({
+    from: Math.round(from).toString(),
+    to: Math.round(to).toString()
+  });
+  if (limit !== undefined) params.set('limit', Math.round(limit).toString());
+  if (cursor) params.set('cursor', cursor);
+  return getJSON<PublicPacketsResponse>(`/api/v1/public/packets?${params.toString()}`);
 }
 
 export interface PublicHistorySummaryParams {

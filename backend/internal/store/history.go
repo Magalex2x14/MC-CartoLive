@@ -39,10 +39,11 @@ func (e HistoryEvent) IATA() string {
 }
 
 type HistoryQuery struct {
-	From   int64
-	To     int64
-	Limit  int
-	Cursor *HistoryCursor
+	From        int64
+	To          int64
+	Limit       int
+	Cursor      *HistoryCursor
+	NewestFirst bool
 }
 
 type HistorySummaryRow struct {
@@ -77,12 +78,22 @@ func (s *Store) PublicHistoryEvents(ctx context.Context, query HistoryQuery) ([]
   WHERE e.heard_at_ms >= ? AND e.heard_at_ms <= ?`
 	args := []any{query.From, to}
 	if query.Cursor != nil {
-		sqlText += ` AND (e.heard_at_ms > ? OR (e.heard_at_ms = ? AND e.id > ?))`
+		if query.NewestFirst {
+			sqlText += ` AND (e.heard_at_ms < ? OR (e.heard_at_ms = ? AND e.id < ?))`
+		} else {
+			sqlText += ` AND (e.heard_at_ms > ? OR (e.heard_at_ms = ? AND e.id > ?))`
+		}
 		args = append(args, query.Cursor.At, query.Cursor.At, query.Cursor.ID)
 	}
-	sqlText += `
+	if query.NewestFirst {
+		sqlText += `
+ORDER BY at_ms DESC, type_order DESC, entity_id DESC
+LIMIT ?`
+	} else {
+		sqlText += `
 ORDER BY at_ms ASC, type_order ASC, entity_id ASC
 LIMIT ?`
+	}
 	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(ctx, sqlText, args...)

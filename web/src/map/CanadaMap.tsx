@@ -61,6 +61,7 @@ export type MapAction =
   | { type: 'latest-route'; token: number }
   | { type: 'route'; token: number; routeID: string }
   | { type: 'node'; token: number; nodeID: string }
+  | { type: 'packet'; token: number; segments: PublicRoutePulse['segments'] }
   | null;
 
 interface Props {
@@ -1467,6 +1468,9 @@ export default function CanadaMap({
       const route = routesRef.current.find((item) => item.id === mapAction.routeID);
       if (route) fitToRoute(map, route, 700);
     }
+    if (mapAction.type === 'packet') {
+      fitToSegments(map, mapAction.segments, 760);
+    }
     if (mapAction.type === 'node') {
       const node = nodesRef.current.find((item) => item.id === mapAction.nodeID);
       if (node) map.easeTo({ center: [node.longitude, node.latitude], zoom: Math.max(map.getZoom(), 8), duration: 700 });
@@ -2754,6 +2758,20 @@ function fitToRoute(map: maplibregl.Map, route: PublicRoute, duration: number) {
   ];
   const bounds = points.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(points[0], points[0]));
   map.fitBounds(bounds, { padding: 120, maxZoom: 10.5, duration });
+}
+
+function fitToSegments(map: maplibregl.Map, segments: PublicRoutePulse['segments'], duration: number) {
+  const points = segments.flatMap((segment) => [
+    [segment.from.lng, segment.from.lat] as [number, number],
+    [segment.to.lng, segment.to.lat] as [number, number]
+  ]).filter(isFollowPoint);
+  if (points.length === 0) return;
+  if (points.length === 1) {
+    map.easeTo({ center: points[0], zoom: Math.max(map.getZoom(), 8.2), duration });
+    return;
+  }
+  const bounds = points.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(points[0], points[0]));
+  map.fitBounds(bounds, { padding: followTrafficPadding(map), maxZoom: 10.8, duration, easing: easeOutCubic });
 }
 
 function followTrafficPulse(

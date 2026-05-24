@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Gauge, Github } from 'lucide-react';
+import { ExternalLink, Gauge, Github, List } from 'lucide-react';
 import { appVersion, buildNumber, buildTime, gitSha, releaseURL } from '../buildInfo';
 import {
   GITHUB_REPO_API_URL,
@@ -18,9 +18,10 @@ const MESHCORE_CANADA_LOGO = '/meshcore-canada-favicon.png';
 
 interface LinkBarProps {
   perfOpen?: boolean;
+  packetsOpen?: boolean;
 }
 
-export default function LinkBar({ perfOpen = false }: LinkBarProps) {
+export default function LinkBar({ perfOpen = false, packetsOpen = false }: LinkBarProps) {
   const [now, setNow] = useState(() => Date.now());
   const [repoStats, setRepoStats] = useState<RepoStats | null>(() => readCachedRepoStats(browserStorage()));
   const buildAge = useMemo(() => formatBuildAge(buildTime, now), [now]);
@@ -74,6 +75,10 @@ export default function LinkBar({ perfOpen = false }: LinkBarProps) {
         <a className={`link-bar-perf ${perfOpen ? 'active' : ''}`} href="#/perf" title="Open performance lab">
           <Gauge size={13} />
           <span>Perf</span>
+        </a>
+        <a className={`link-bar-perf ${packetsOpen ? 'active' : ''}`} href="#/packets" title="Open true path packets">
+          <List size={13} />
+          <span>Packets</span>
         </a>
       </div>
       <a className="link-bar-github" href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" title="Open MC-CartoLive on GitHub">

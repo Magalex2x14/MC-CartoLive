@@ -113,6 +113,21 @@ export interface PublicRoutePulse {
   segments: PublicRouteSegment[];
 }
 
+export interface PublicPacketPath {
+  id: string;
+  at: number;
+  iata?: string;
+  payloadTypeName: string;
+  messageSender?: string;
+  messageText?: string;
+  hopCount: number;
+  segmentCount: number;
+  distanceKm: number;
+  routeIds: string[];
+  endpointLabels: string[];
+  segments: PublicRouteSegment[];
+}
+
 export interface PublicStats {
   packets: number;
   activeNodes: number;
@@ -147,6 +162,13 @@ export interface PublicHistoryWindow {
 export interface PublicHistoryResponse {
   serverTime: number;
   events: PublicHistoryEvent[];
+  nextCursor?: string;
+  window: PublicHistoryWindow;
+}
+
+export interface PublicPacketsResponse {
+  serverTime: number;
+  packets: PublicPacketPath[];
   nextCursor?: string;
   window: PublicHistoryWindow;
 }

@@ -651,10 +651,11 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 	for len(packets) < limit {
 		rawLimit := historyRawPageSize(limit - len(packets))
 		rawEvents, err := s.Store.PublicHistoryEvents(ctx, store.HistoryQuery{
-			From:   from,
-			To:     to,
-			Limit:  rawLimit,
-			Cursor: nextCursor,
+			From:        from,
+			To:          to,
+			Limit:       rawLimit,
+			Cursor:      nextCursor,
+			NewestFirst: true,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)

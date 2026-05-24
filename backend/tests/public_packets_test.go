@@ -85,7 +85,7 @@ func TestPublicPacketsEndpointReturnsOnlySanitizedTrueRoutedPackets(t *testing.T
 	}
 }
 
-func TestPublicPacketsEndpointUsesStableCursorPagination(t *testing.T) {
+func TestPublicPacketsEndpointReturnsNewestFirstWithStableCursorPagination(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.OpenMemory(ctx)
 	if err != nil {
@@ -115,8 +115,8 @@ func TestPublicPacketsEndpointUsesStableCursorPagination(t *testing.T) {
 	if err := json.Unmarshal(firstPage.Body.Bytes(), &page1); err != nil {
 		t.Fatal(err)
 	}
-	if len(page1.Packets) != 1 || page1.Packets[0].At != base+1_000 || page1.NextCursor == "" {
-		t.Fatalf("first page = %#v, want oldest packet plus cursor", page1)
+	if len(page1.Packets) != 1 || page1.Packets[0].At != base+2_000 || page1.NextCursor == "" {
+		t.Fatalf("first page = %#v, want newest packet plus cursor", page1)
 	}
 
 	secondPage := httptest.NewRecorder()
@@ -129,8 +129,8 @@ func TestPublicPacketsEndpointUsesStableCursorPagination(t *testing.T) {
 	if err := json.Unmarshal(secondPage.Body.Bytes(), &page2); err != nil {
 		t.Fatal(err)
 	}
-	if len(page2.Packets) != 1 || page2.Packets[0].At != base+2_000 {
-		t.Fatalf("second page = %#v, want second packet", page2)
+	if len(page2.Packets) != 1 || page2.Packets[0].At != base+1_000 {
+		t.Fatalf("second page = %#v, want next older packet", page2)
 	}
 }
 

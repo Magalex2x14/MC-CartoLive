@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.4.1 - 2026-05-24
+
+- Added the top-bar `Packets` tab for public-safe true-path packet browsing, with 1h/6h/24h windows, search, region/payload/min-hop/message filters, newest-first paging, and load-older support.
+- Wired packet rows to the live map: selecting a packet focuses its exact public segments and highlights matching route/node IDs; Replay sends the selected real path through the existing packet comet renderer.
+- Changed `/api/v1/public/packets` to page newest-first while preserving oldest-first ordering for VCR `/api/v1/public/history`.
+
 ## 2.4.0 - 2026-05-24
 
 - Documented the 2.4 true-path Packets roadmap: public-safe packet API groundwork, Packets tab UI, local-only explainability diagnostics, performance/mobile polish, and production gate.

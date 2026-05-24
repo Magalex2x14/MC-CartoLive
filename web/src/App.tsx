@@ -22,6 +22,7 @@ import StatusBar from './components/StatusBar';
 import VcrBar, { MiniLiveClock } from './components/VcrBar';
 import ChromePanel from './components/ChromePanel';
 import PerfPanel from './components/PerfPanel';
+import PacketsPanel from './components/PacketsPanel';
 import {
   DEFAULT_CHROME_PANEL_ANCHORS,
   INITIAL_CHROME_PANEL_VISIBILITY,
@@ -51,6 +52,7 @@ import {
   shortestPathBetween
 } from './connectivity';
 import { boundsFromPoints, meshcorePathCopyText, messageHistoryForNode, routeNodeIDs, routesInBounds, type MapPoint } from './routeTools';
+import { packetNodeIDs, packetRouteIDs, packetToPulse } from './packets';
 import {
   clearSelection as clearSelectionState,
   selectNodeSelection,
@@ -71,7 +73,7 @@ import {
   type ThemeMode,
   type ThemePalette
 } from './theme';
-import type { PublicActivity, PublicHistorySummaryBucket, PublicLiveEnvelope } from './types';
+import type { PublicActivity, PublicHistorySummaryBucket, PublicLiveEnvelope, PublicPacketPath } from './types';
 
 interface VcrUiState {
   mode: VcrMode;
@@ -105,6 +107,7 @@ export default function App() {
   const [mapAction, setMapAction] = useState<MapAction>(null);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(() => sharedViewRef.current?.node ?? null);
   const [selectedRouteID, setSelectedRouteID] = useState<string | null>(() => sharedViewRef.current?.route ?? null);
+  const [selectedPacket, setSelectedPacket] = useState<PublicPacketPath | null>(null);
   const [highlightedPathTargetID, setHighlightedPathTargetID] = useState<string | null>(null);
   const [plotMode, setPlotMode] = useState<PlotMode>('off');
   const [plotFirstNodeID, setPlotFirstNodeID] = useState<string | null>(null);
@@ -121,6 +124,7 @@ export default function App() {
   const [paletteMenuOpen, setPaletteMenuOpen] = useState(false);
   const [panelsMenuOpen, setPanelsMenuOpen] = useState(false);
   const [perfOpen, setPerfOpen] = useState(() => window.location.hash === '#/perf');
+  const [packetsOpen, setPacketsOpen] = useState(() => window.location.hash === '#/packets');
   const [initialLoadGateOpen, setInitialLoadGateOpen] = useState(true);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [liveClock, setLiveClock] = useState(() => Date.now());
@@ -156,9 +160,12 @@ export default function App() {
 
   useEffect(() => {
     const updateRoute = () => {
-      const open = window.location.hash === '#/perf';
-      setPerfOpen(open);
-      if (open) {
+      const hash = window.location.hash;
+      const nextPerfOpen = hash === '#/perf';
+      const nextPacketsOpen = hash === '#/packets';
+      setPerfOpen(nextPerfOpen);
+      setPacketsOpen(nextPacketsOpen);
+      if (nextPerfOpen || nextPacketsOpen) {
         setPaletteMenuOpen(false);
         setPanelsMenuOpen(false);
       }
@@ -173,6 +180,13 @@ export default function App() {
       window.history.pushState(null, '', `${window.location.pathname}${window.location.search}`);
     }
     setPerfOpen(false);
+  }, []);
+
+  const closePackets = useCallback(() => {
+    if (window.location.hash === '#/packets') {
+      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    setPacketsOpen(false);
   }, []);
 
   useEffect(() => {
@@ -614,8 +628,16 @@ export default function App() {
     if (plotResult?.type === 'area') return routeNodeIDs(plotResult.routes);
     return new Set<string>();
   }, [plotResult]);
-  const highlightedPathRouteIDs = useMemo(() => new Set([...(highlightedPath?.routeIDs ?? []), ...plotHighlightedRouteIDs]), [highlightedPath, plotHighlightedRouteIDs]);
-  const highlightedPathNodeIDs = useMemo(() => new Set([...(highlightedPath?.nodeIDs ?? []), ...plotHighlightedNodeIDs]), [highlightedPath, plotHighlightedNodeIDs]);
+  const selectedPacketRouteIDs = useMemo(() => packetRouteIDs(selectedPacket), [selectedPacket]);
+  const selectedPacketNodeIDs = useMemo(() => packetNodeIDs(selectedPacket), [selectedPacket]);
+  const highlightedPathRouteIDs = useMemo(
+    () => new Set([...(highlightedPath?.routeIDs ?? []), ...plotHighlightedRouteIDs, ...selectedPacketRouteIDs]),
+    [highlightedPath, plotHighlightedRouteIDs, selectedPacketRouteIDs]
+  );
+  const highlightedPathNodeIDs = useMemo(
+    () => new Set([...(highlightedPath?.nodeIDs ?? []), ...plotHighlightedNodeIDs, ...selectedPacketNodeIDs]),
+    [highlightedPath, plotHighlightedNodeIDs, selectedPacketNodeIDs]
+  );
   const selectedNodeMessageHistory = useMemo(
     () => messageHistoryForNode(selectedNode, visibleRoutes, state.activity),
     [selectedNode, state.activity, visibleRoutes]
@@ -656,21 +678,51 @@ export default function App() {
   }, []);
 
   const clearSelection = useCallback(() => {
+    setSelectedPacket(null);
     applySelection(clearSelectionState());
   }, [applySelection]);
 
   const selectNode = useCallback((nodeID: string) => {
+    setSelectedPacket(null);
     applySelection(selectNodeSelection(nodeID));
   }, [applySelection]);
 
   const selectRoute = useCallback((routeID: string) => {
+    setSelectedPacket(null);
     applySelection(selectRouteSelection(routeID));
     dispatchMapAction('route', routeID);
   }, [applySelection, dispatchMapAction]);
 
   const selectPhonebookPath = useCallback((nodeID: string) => {
+    setSelectedPacket(null);
     applySelection(selectPathTargetSelection({ selectedNodeID, selectedRouteID, highlightedPathTargetID }, nodeID));
   }, [applySelection, highlightedPathTargetID, selectedNodeID, selectedRouteID]);
+
+  const focusPacketPath = useCallback((packet: PublicPacketPath) => {
+    setSelectedPacket(packet);
+    applySelection(clearSelectionState());
+    const token = actionTokenRef.current + 1;
+    actionTokenRef.current = token;
+    setMapAction({ type: 'packet', token, segments: packet.segments });
+  }, [applySelection]);
+
+  const replayPacketPath = useCallback((packet: PublicPacketPath) => {
+    if (vcrModeRef.current !== 'live') {
+      stopReplay();
+      clearPendingLiveFlush();
+      pendingMessagesRef.current = [];
+      vcrBufferedMessagesRef.current = [];
+      recordVcrReplayQueueSize(0);
+      setVcr((current) => ({ ...current, mode: 'live', missedCount: 0, scrubAt: null, clock: null, status: 'idle' }));
+    }
+    setPaused(false);
+    focusPacketPath(packet);
+    const pulse = packetToPulse(packet);
+    setState((current) => ({
+      ...current,
+      pulses: [pulse, ...current.pulses].slice(0, 240)
+    }));
+  }, [clearPendingLiveFlush, focusPacketPath, stopReplay]);
 
   const startNodePlot = useCallback(() => {
     setPlotMode('node');
@@ -813,7 +865,7 @@ export default function App() {
         onClearSelection={clearSelection}
       />
       {loadingPositionedNodes && <NodeLoadingToast failed={nodeLoadFailed} drawing={initialNodesReceived} />}
-      <LinkBar perfOpen={perfOpen} />
+      <LinkBar perfOpen={perfOpen} packetsOpen={packetsOpen} />
       {!chromeHidden && (
         <StatusBar
           stats={state.stats}
@@ -950,6 +1002,14 @@ export default function App() {
       </div>
       {shareToast && <div className="share-toast" role="status">{shareToast}</div>}
       {perfOpen && <PerfPanel onClose={closePerf} />}
+      {packetsOpen && (
+        <PacketsPanel
+          selectedPacketID={selectedPacket?.id ?? null}
+          onClose={closePackets}
+          onSelectPacket={focusPacketPath}
+          onReplayPacket={replayPacketPath}
+        />
+      )}
 
       {!vcrOpen && (
         <>

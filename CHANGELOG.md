@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.3.1 - 2026-05-24
+
+- Added a local `scripts/live-smoke.ps1` production smoke command that verifies health, readiness, public state, public history, WebSocket hello, deployed metadata, Docker health, and bundled `mc-diagnose` on the live droplet.
+- Added an optional `-RunLiveSmoke` mode to the heavier release-check script so full local checks can chain into live droplet verification when needed.
+- Updated release, production, development, and operator docs with the repeatable post-deploy smoke path and override options.
+
 ## 2.3.0 - 2026-05-24
 
 - Started the 2.3 operator-confidence roadmap while keeping public map features stable.

@@ -33,6 +33,23 @@ On Windows:
 .\scripts\release-check.ps1 -BaseUrl http://127.0.0.1:39476
 ```
 
+For the production droplet after deploy, run the single live smoke command from
+your workstation:
+
+```powershell
+.\scripts\live-smoke.ps1
+```
+
+Common overrides:
+
+```powershell
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -SshTarget root@134.122.45.228 -KeyPath "$env:USERPROFILE\.ssh\neonx" -ExpectedGitSha <short-sha> -DiagnoseIata YTR
+```
+
+The live smoke verifies `/healthz`, `/readyz`, public state, public history,
+WebSocket hello, deployed version/Git metadata, Docker health, and the bundled
+`mc-diagnose` command inside the running container.
+
 ## Soak Check
 
 Use a short soak after deploys and a 24h soak before production-candidate tags.

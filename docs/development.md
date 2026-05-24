@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.3.0 VCR, route-copy, phonebook, live-confidence, and route performance checks:
+For v2.3.1 VCR, route-copy, phonebook, live-confidence, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -207,6 +207,19 @@ Run a short local soak when validating release automation:
 
 ```powershell
 .\scripts\soak-check.ps1 -BaseUrl http://127.0.0.1:39476 -DurationMinutes 10 -IntervalSeconds 30
+```
+
+Run production smoke from your workstation after a droplet deploy:
+
+```powershell
+.\scripts\live-smoke.ps1
+```
+
+Use overrides when testing a branch, alternate host, expected build, or another
+diagnostic IATA:
+
+```powershell
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.3.1 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
 ```
 
 Check privacy before committing:

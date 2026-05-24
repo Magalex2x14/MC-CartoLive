@@ -1,6 +1,8 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:39476",
-  [switch]$SkipDocker
+  [switch]$SkipDocker,
+  [switch]$RunLiveSmoke,
+  [string]$LiveSmokeBaseUrl = "https://carto.canadaverse.org"
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +55,10 @@ try {
     GitSha = $health.gitSha
     BuildTime = $health.buildTime
   } | Format-List
+
+  if ($RunLiveSmoke) {
+    & (Join-Path $PSScriptRoot "live-smoke.ps1") -BaseUrl $LiveSmokeBaseUrl
+  }
 }
 finally {
   Pop-Location

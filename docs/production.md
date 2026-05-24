@@ -98,7 +98,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.1.5 exposes the app version/build in the top project bar. CI builds use
+- Version 2.1.10 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -116,6 +116,18 @@ docker compose up -d
   checks. Use `/readyz` for deployment smoke checks and host monitoring.
 - Public history replay uses cached public location indexes and a short-lived
   timeline summary cache to reduce SQLite pressure during VCR polling.
+- Local operator diagnostics can explain map-inclusion decisions without adding
+  a public debug API:
+
+```bash
+cd backend
+go run ./cmd/diagnose --db ../data/meshcore-live.db --iata YTR --public-iatas "$PUBLIC_IATAS"
+go run ./cmd/diagnose --db ../data/meshcore-live.db --name Krabs --public-iatas "$PUBLIC_IATAS"
+```
+
+The report uses the same mappability reasons as the public-state builder:
+`mappable`, `missing_coords`, `zero_coords`, `outside_bounds`, and
+`iata_filtered`.
 - SQLite runs in WAL mode with a busy timeout. For long-running hosts, keep
   regular backups and periodically restart/rebuild during maintenance windows
   if WAL files grow unexpectedly.
@@ -140,6 +152,8 @@ docker compose up -d
 - Browser-test the live container at desktop and narrow mobile widths after UI
   changes, especially hidden/open VCR offsets, bottom-left action dock, compact
   Legend under Search, map toggles, palette contrast, and replay history.
+- Run `scripts/release-check.ps1` on Windows or `scripts/release-check.sh` on
+  Linux/macOS before tagging or after deploying.
 
 ## Troubleshooting
 

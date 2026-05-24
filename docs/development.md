@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.1.5 VCR, route-copy, phonebook, and route performance checks:
+For v2.1.10 VCR, route-copy, phonebook, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -160,6 +160,10 @@ For v2.1.5 VCR, route-copy, phonebook, and route performance checks:
   Pathways is hidden by default, and the Panels menu restores each panel.
 - Switch dark/light mode and several palettes; verify links, Legend, VCR, and
   map controls remain readable.
+- Use `go run ./cmd/diagnose --db ../data/meshcore-live.db --iata YTR` from
+  `backend/` to confirm unmapped records explain themselves with
+  `missing_coords`, `zero_coords`, `outside_bounds`, `iata_filtered`, or
+  `mappable`.
 - Click Plot routes, choose two node endpoints, and confirm the shortest public
   route path glows with a closeable route toast.
 - Switch to map-square mode, click two map corners, and confirm all public

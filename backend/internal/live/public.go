@@ -192,7 +192,7 @@ func BuildPublicLiveState(state State, stats PublicStats) PublicLiveState {
 }
 
 func PublicNodeFromNode(node Node) (PublicNode, bool) {
-	if node.Latitude == nil || node.Longitude == nil || !validPublicCoords(*node.Latitude, *node.Longitude) {
+	if !PublicNodeMapInclusion(node, NewPublicIATAFilter(nil)).Mappable {
 		return PublicNode{}, false
 	}
 	return PublicNode{
@@ -209,7 +209,7 @@ func PublicNodeFromNode(node Node) (PublicNode, bool) {
 }
 
 func PublicNodeFromObserver(observer Observer) (PublicNode, bool) {
-	if observer.Latitude == nil || observer.Longitude == nil || !validPublicCoords(*observer.Latitude, *observer.Longitude) {
+	if !PublicObserverFallbackInclusion(observer, NewPublicIATAFilter(nil)).Mappable {
 		return PublicNode{}, false
 	}
 	iata := strings.ToUpper(strings.TrimSpace(observer.IATA))

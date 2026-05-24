@@ -25,19 +25,24 @@ func TestHealthzIncludesPublicSafeOperationalFields(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 
 	cache := live.NewPublicStateCache(live.NewPublicIATAFilter([]string{"YYZ"}))
+	now := time.Now().UnixMilli()
 	cache.Replace(live.PublicLiveState{
-		ServerTime: time.Now().UnixMilli(),
+		ServerTime: now,
 		Stats: live.PublicStats{
 			Packets:      42,
 			ActiveNodes:  3,
 			ActiveRoutes: 2,
+		},
+		RecentPulses: []live.PublicRoutePulse{{ID: "pulse-1", HeardAt: now - 1_000}},
+		RecentActivity: []live.PublicActivity{
+			{ID: "activity-observer", AnimationState: live.PublicAnimationObserver, HeardAt: now - 2_000},
 		},
 	}, nil)
 	runtime := live.NewRuntimeStats()
 	runtime.RecordPublicHistory(12*time.Millisecond, false)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	server := api.Server{
-		Config:            api.Config{PublicMode: true, AppVersion: "2.1.5", GitSHA: "abcdef1", BuildTime: "2026-05-23T00:00:00Z"},
+		Config:            api.Config{PublicMode: true, AppVersion: "2.1.10", GitSHA: "abcdef1", BuildTime: "2026-05-23T00:00:00Z"},
 		Store:             st,
 		PublicHub:         live.NewHub(log, 4),
 		Runtime:           runtime,
@@ -57,19 +62,43 @@ func TestHealthzIncludesPublicSafeOperationalFields(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"cacheAgeMs", "mqttConnected", "wsDroppedMessages", "publicStateReady", "dbReady", "version", "gitSha", "buildTime", "publicHistoryRequests"} {
+	for _, key := range []string{"cacheAgeMs", "mqttConnected", "wsDroppedMessages", "publicStateReady", "dbReady", "version", "gitSha", "buildTime", "publicHistoryRequests", "recentRoutePulseAgeMs", "recentObserverBurstAgeMs", "publicLiveFresh"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("healthz missing %q in %#v", key, payload)
 		}
 	}
-	if payload["version"] != "2.1.5" || payload["gitSha"] != "abcdef1" {
+	if payload["version"] != "2.1.10" || payload["gitSha"] != "abcdef1" || payload["buildTime"] == "" {
 		t.Fatalf("build metadata = %#v", payload)
+	}
+	if payload["publicLiveFresh"] != true {
+		t.Fatalf("publicLiveFresh = %#v, want true in fresh fixture", payload["publicLiveFresh"])
 	}
 	raw := response.Body.String()
 	for _, forbidden := range []string{"packetHash", "raw_hex", "publicKey", "pathHex", "resolver"} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("healthz leaked forbidden token %q: %s", forbidden, raw)
 		}
+	}
+}
+
+func TestHealthzBuildMetadataFallbacksAreNonEmpty(t *testing.T) {
+	server := api.Server{
+		Config:        api.Config{PublicMode: true},
+		PublicHub:     live.NewHub(slog.New(slog.NewTextHandler(io.Discard, nil)), 4),
+		MQTTConnected: func() bool { return false },
+		MQTTTotal:     func() int64 { return 0 },
+	}
+	response := httptest.NewRecorder()
+	server.Routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("healthz status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["version"] == "" || payload["gitSha"] == "" || payload["buildTime"] == "" {
+		t.Fatalf("metadata fallback should be non-empty: %#v", payload)
 	}
 }
 

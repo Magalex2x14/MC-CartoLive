@@ -137,8 +137,8 @@ func (s *Server) operationalStatus(ctx context.Context, includeDB bool) map[stri
 		"wsQueueHighWater":       publicHubStats.QueueHighWater,
 		"wsPingFailures":         publicHubStats.PingFailures,
 		"version":                fallbackString(s.Config.AppVersion, "dev"),
-		"gitSha":                 s.Config.GitSHA,
-		"buildTime":              s.Config.BuildTime,
+		"gitSha":                 fallbackString(s.Config.GitSHA, "unknown"),
+		"buildTime":              fallbackString(s.Config.BuildTime, "unknown"),
 		"publicStateRequests":    runtime.PublicStateRequests,
 		"publicStateErrors":      runtime.PublicStateErrors,
 		"publicHistoryRequests":  runtime.PublicHistoryRequests,
@@ -155,12 +155,55 @@ func (s *Server) operationalStatus(ctx context.Context, includeDB bool) map[stri
 			payload["nodesWithPosition"] = state.Stats.ActiveNodes
 			payload["edgeEvents"] = state.Stats.ActiveRoutes
 			payload["unresolved"] = publicResolutionCount(state.Stats.ResolutionBuckets, "unresolved_path")
+			routePulseAgeMs := publicLatestAgeMs(now, latestRoutePulseAt(state.RecentPulses))
+			observerBurstAgeMs := publicLatestAgeMs(now, latestObserverActivityAt(state.RecentActivity))
+			payload["recentRoutePulseAgeMs"] = routePulseAgeMs
+			payload["recentObserverBurstAgeMs"] = observerBurstAgeMs
+			payload["publicLiveFresh"] = publicLiveFresh(cacheStatus.CacheAgeMs, routePulseAgeMs, observerBurstAgeMs, mqttStatus.LastMessageAgeMs)
 		}
 	}
 	if includeDB {
 		payload["ready"] = dbReady && cacheStatus.Ready && staticReady
 	}
 	return payload
+}
+
+func publicLatestAgeMs(now time.Time, latest int64) int64 {
+	if latest <= 0 {
+		return -1
+	}
+	age := now.UnixMilli() - latest
+	if age < 0 {
+		return 0
+	}
+	return age
+}
+
+func latestRoutePulseAt(items []live.PublicRoutePulse) int64 {
+	var latest int64
+	for _, item := range items {
+		if item.HeardAt > latest {
+			latest = item.HeardAt
+		}
+	}
+	return latest
+}
+
+func latestObserverActivityAt(items []live.PublicActivity) int64 {
+	var latest int64
+	for _, item := range items {
+		if item.AnimationState == live.PublicAnimationObserver && item.HeardAt > latest {
+			latest = item.HeardAt
+		}
+	}
+	return latest
+}
+
+func publicLiveFresh(cacheAgeMs int64, routePulseAgeMs int64, observerBurstAgeMs int64, mqttAgeMs int64) bool {
+	if cacheAgeMs > 30_000 || mqttAgeMs > 120_000 {
+		return false
+	}
+	return (routePulseAgeMs >= 0 && routePulseAgeMs <= 120_000) || (observerBurstAgeMs >= 0 && observerBurstAgeMs <= 120_000)
 }
 
 func publicResolutionCount(buckets map[string]map[string]int64, name string) int64 {

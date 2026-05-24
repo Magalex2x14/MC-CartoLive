@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.1.5
+# MeshCore MQTT Live Map v2.1.10
 
 Also known as **MC-CartoLive**.
 
@@ -58,6 +58,7 @@ palette swatches.
 - Prioritizes the map on mobile by hiding secondary panels/toasts and keeping the map, packet animations, live clock, and essential controls readable.
 - Serves public state from a backend memory cache instead of rebuilding every request from SQLite.
 - Adds cheap `/healthz` liveness and `/readyz` readiness checks with public-safe runtime counters for cache age, DB readiness, MQTT status, WebSocket drops, and public history latency.
+- Adds operator-only diagnostics for explaining why a node, observer, name, or IATA is or is not shown on the public map.
 - Caches public history location indexes and timeline summary buckets to reduce SQLite pressure from VCR replay and timeline polling.
 - Batches frontend map source updates behind animation frames and pauses packet canvas work while the tab is hidden.
 - Exposes opt-in browser-local performance counters for development without sending telemetry anywhere.
@@ -184,7 +185,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.1.5 release path is clone + Docker Compose on a VPS or local
+The recommended v2.1.10 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:
@@ -199,6 +200,8 @@ More details:
 
 - [Development](docs/development.md)
 - [Production](docs/production.md)
+- [Operator runbook](docs/operator-runbook.md)
+- [2.1 reliability roadmap](docs/roadmap.md)
 - [Privacy](docs/privacy.md)
 - [Security](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)

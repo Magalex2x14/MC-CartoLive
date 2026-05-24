@@ -56,6 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_observations_recent ON packet_observations(heard_
 CREATE INDEX IF NOT EXISTS idx_observations_recent_id ON packet_observations(heard_at_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_observations_resolution ON packet_observations(resolution_status, heard_at_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_observations_iata ON packet_observations(iata, heard_at_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_observations_observer_recent ON packet_observations(observer_public_key, heard_at_ms DESC);
 
 CREATE TABLE IF NOT EXISTS nodes (
   node_id TEXT PRIMARY KEY,
@@ -82,6 +83,8 @@ CREATE TABLE IF NOT EXISTS node_iatas (
   FOREIGN KEY(public_key) REFERENCES nodes(public_key)
 );
 
+CREATE INDEX IF NOT EXISTS idx_node_iatas_iata_recent ON node_iatas(iata, last_seen_ms DESC);
+
 CREATE TABLE IF NOT EXISTS node_short_ids (
   public_key TEXT NOT NULL,
   iata TEXT NOT NULL,
@@ -107,6 +110,8 @@ CREATE TABLE IF NOT EXISTS observers (
   PRIMARY KEY(public_key, iata)
 );
 
+CREATE INDEX IF NOT EXISTS idx_observers_iata_recent ON observers(iata, last_seen_ms DESC);
+
 CREATE TABLE IF NOT EXISTS observer_status (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   public_key TEXT NOT NULL,
@@ -114,6 +119,8 @@ CREATE TABLE IF NOT EXISTS observer_status (
   status_json TEXT NOT NULL,
   received_at_ms INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_observer_status_recent ON observer_status(received_at_ms DESC);
 
 CREATE TABLE IF NOT EXISTS path_resolution_cache (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

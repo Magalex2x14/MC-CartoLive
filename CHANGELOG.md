@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 2.1.10 - 2026-05-24
+
+- Completed the 2.1.6-2.1.10 reliability roadmap as a no-new-map-features hardening pass.
+- Centralized public map inclusion decisions for nodes and observers with explicit mappability reasons: `mappable`, `missing_coords`, `zero_coords`, `outside_bounds`, and `iata_filtered`.
+- Added a local operator diagnostic command for IATA/name/ID investigations so missing nodes and observers can be explained without exposing a public debug API.
+- Ensured Docker builds pass backend version, git SHA, and build time into runtime health/readiness metadata.
+- Added public-safe freshness fields to `/healthz` and `/readyz` for recent route pulses, observer activity, and public live freshness.
+- Added SQLite indexes for observer/IATA diagnostic and live history pressure paths.
+- Added release-check scripts plus an operator runbook and 2.1 reliability roadmap documentation.
+
 ## 2.1.5 - 2026-05-24
 
 - Completed the 2.1 production-readiness hardening rollup while keeping the 2.1.0 feature set frozen.

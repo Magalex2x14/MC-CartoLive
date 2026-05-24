@@ -98,12 +98,15 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.1.10 exposes the app version/build in the top project bar. CI builds use
+- Version 2.2.5 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
   liveness, while `/readyz` verifies DB ping, public cache readiness, static
   frontend availability, and public-safe runtime status.
+- Live confidence is separated into packet ingest freshness, public cache
+  freshness, route motion, observer motion, and map motion. Packet ingest should
+  normally be less than five seconds stale on production traffic.
 - Docker Compose forwards optional `VITE_BUILD_NUMBER`, `VITE_GIT_SHA`, and
   `VITE_BUILD_TIME` build args so release builds can link directly to the
   source commit.
@@ -123,6 +126,7 @@ docker compose up -d
 cd backend
 go run ./cmd/diagnose --db ../data/meshcore-live.db --iata YTR --public-iatas "$PUBLIC_IATAS"
 go run ./cmd/diagnose --db ../data/meshcore-live.db --name Krabs --public-iatas "$PUBLIC_IATAS"
+go run ./cmd/diagnose --db ../data/meshcore-live.db --label Corebot --public-iatas "$PUBLIC_IATAS"
 ```
 
 On a Docker host, run the bundled diagnostic binary inside the container:
@@ -133,7 +137,9 @@ docker compose exec meshcore-live-map /app/mc-diagnose --db /app/data/meshcore-l
 
 The report uses the same mappability reasons as the public-state builder:
 `mappable`, `missing_coords`, `zero_coords`, `outside_bounds`, and
-`iata_filtered`.
+`iata_filtered`. It also reports actual IATA values, public allowlist status,
+coordinate status, label IATA hints, and whether the position came from a node
+or observer record.
 - SQLite runs in WAL mode with a busy timeout. For long-running hosts, keep
   regular backups and periodically restart/rebuild during maintenance windows
   if WAL files grow unexpectedly.
@@ -143,13 +149,14 @@ The report uses the same mappability reasons as the public-state builder:
 - Dark/light mode, palette choice, VCR open state, and panel visibility are
   browser-local UI preferences. They do not require database or API migrations.
 
-## Production 2.1 Readiness Checklist
+## Production 2.2 Readiness Checklist
 
 - Keep `/healthz`, `/readyz`, `/api/v1/public/state`, `/ws/public`, and public history
   checks in every deploy smoke test.
 - Track websocket fanout, WebSocket queue drops, MQTT connectivity, MQTT last
-  message age, public cache age, public history latency/errors, SQLite
-  read/write errors, and static asset serving errors in logs or host monitoring.
+  message age, packet ingest freshness, public cache age, route/observer motion,
+  public history latency/errors, SQLite read/write errors, and static asset
+  serving errors in logs or host monitoring.
 - Back up `data/meshcore-live.db*` before upgrades and document the restore
   path for the host running Docker Compose.
 - Audit public JSON responses before each release for raw packet hashes, raw

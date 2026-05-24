@@ -31,7 +31,7 @@ import {
   type ChromePanelID,
   type ChromeVisibilityState
 } from './components/panelChrome';
-import { liveEnvelopeDisplayAt, nextLiveEnvelopeDelayMs, sortLiveEnvelopes, takeDueLiveEnvelopes } from './livePacing';
+import { capLiveEnvelopeQueue, liveEnvelopeDisplayAt, nextLiveEnvelopeDelayMs, sortLiveEnvelopes, takeDueLiveEnvelopes } from './livePacing';
 import {
   historyEventsToLiveEnvelopes,
   historyFetchWindowFromScrub,
@@ -58,7 +58,7 @@ import {
   type SelectionState
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
-import { recordVcrReplayQueueSize } from './perfDiagnostics';
+import { recordLivePendingQueueSize, recordVcrReplayQueueSize, recordVisibilityPause } from './perfDiagnostics';
 import {
   THEME_PALETTES,
   applyDocumentTheme,
@@ -182,6 +182,7 @@ export default function App() {
     vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, ...routedPending]).slice(-VCR_MAX_BUFFERED_COMETS);
     recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
     pendingMessagesRef.current = [];
+    recordLivePendingQueueSize(0);
     setVcr((current) => ({
       ...current,
       missedCount: vcrBufferedMessagesRef.current.length,
@@ -418,6 +419,7 @@ export default function App() {
       if (due.length > 0) {
         setState((current) => due.reduce((next, message) => applyPublicEnvelope(next, message), current));
       }
+      recordLivePendingQueueSize(pendingMessagesRef.current.length);
       if (pendingMessagesRef.current.length > 0) scheduleMessagesFlush();
     };
     const enqueueMessage = (message: PublicLiveEnvelope) => {
@@ -426,7 +428,8 @@ export default function App() {
         bufferVcrMessage(message);
         return;
       }
-      pendingMessagesRef.current.push(message);
+      pendingMessagesRef.current = capLiveEnvelopeQueue([...pendingMessagesRef.current, message]);
+      recordLivePendingQueueSize(pendingMessagesRef.current.length);
       scheduleMessagesFlush();
     };
     const refreshState = () => {
@@ -448,6 +451,7 @@ export default function App() {
     const socket = connectPublicSocket((message) => {
       if (message.type === 'lagged') {
         pendingMessagesRef.current = [];
+        recordLivePendingQueueSize(0);
         if (flushMessagesTimerRef.current !== null) {
           window.clearTimeout(flushMessagesTimerRef.current);
           flushMessagesTimerRef.current = null;
@@ -469,9 +473,22 @@ export default function App() {
       if (flushMessagesTimerRef.current !== null) window.clearTimeout(flushMessagesTimerRef.current);
       flushMessagesTimerRef.current = null;
       pendingMessagesRef.current = [];
+      recordLivePendingQueueSize(0);
       socket.close();
     };
   }, [bufferVcrMessage]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        recordVisibilityPause();
+      } else if (vcrModeRef.current === 'live') {
+        refreshLiveSnapshot();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [refreshLiveSnapshot]);
 
   useEffect(() => {
     let active = true;

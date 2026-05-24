@@ -13,6 +13,7 @@ import (
 
 	"meshcore-canada-live-map/backend/internal/api"
 	"meshcore-canada-live-map/backend/internal/live"
+	imqtt "meshcore-canada-live-map/backend/internal/mqtt"
 	"meshcore-canada-live-map/backend/internal/store"
 )
 
@@ -62,7 +63,7 @@ func TestHealthzIncludesPublicSafeOperationalFields(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"cacheAgeMs", "mqttConnected", "wsDroppedMessages", "publicStateReady", "dbReady", "version", "gitSha", "buildTime", "publicHistoryRequests", "recentRoutePulseAgeMs", "recentObserverBurstAgeMs", "publicLiveFresh"} {
+	for _, key := range []string{"cacheAgeMs", "mqttConnected", "wsDroppedMessages", "publicStateReady", "dbReady", "version", "gitSha", "buildTime", "publicHistoryRequests", "recentRoutePulseAgeMs", "recentObserverBurstAgeMs", "packetIngestState", "publicCacheState", "routeMotionState", "observerMotionState", "mapMotionState", "liveConfidenceState", "packetIngestFresh", "mapMotionFresh", "publicLiveFresh"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("healthz missing %q in %#v", key, payload)
 		}
@@ -73,11 +74,53 @@ func TestHealthzIncludesPublicSafeOperationalFields(t *testing.T) {
 	if payload["publicLiveFresh"] != true {
 		t.Fatalf("publicLiveFresh = %#v, want true in fresh fixture", payload["publicLiveFresh"])
 	}
+	if payload["packetIngestState"] != "fresh" || payload["mapMotionState"] != "moving" || payload["liveConfidenceState"] != "fresh" {
+		t.Fatalf("live confidence fields = %#v", payload)
+	}
 	raw := response.Body.String()
 	for _, forbidden := range []string{"packetHash", "raw_hex", "publicKey", "pathHex", "resolver"} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("healthz leaked forbidden token %q: %s", forbidden, raw)
 		}
+	}
+}
+
+func TestHealthzSeparatesPacketIngestFromQuietMapMotion(t *testing.T) {
+	cache := live.NewPublicStateCache(live.NewPublicIATAFilter([]string{"YYZ"}))
+	now := time.Now().UnixMilli()
+	cache.Replace(live.PublicLiveState{
+		ServerTime: now,
+		Stats:      live.PublicStats{Packets: 100},
+	}, nil)
+	server := api.Server{
+		Config:            api.Config{PublicMode: true},
+		PublicHub:         live.NewHub(slog.New(slog.NewTextHandler(io.Discard, nil)), 4),
+		PublicState:       cache.Snapshot,
+		PublicCacheStatus: cache.Status,
+		MQTTConnected:     func() bool { return true },
+		MQTTTotal:         func() int64 { return 100 },
+		MQTTStatus: func(time.Time) imqtt.Status {
+			return imqtt.Status{Connected: true, TotalMessages: 100, LastMessageAgeMs: 4000}
+		},
+	}
+
+	response := httptest.NewRecorder()
+	server.Routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("healthz status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["packetIngestState"] != "fresh" || payload["packetIngestFresh"] != true {
+		t.Fatalf("packet ingest should be fresh under 5s: %#v", payload)
+	}
+	if payload["mapMotionState"] != "missing" || payload["mapMotionFresh"] != false {
+		t.Fatalf("map motion should be separate from packet ingest: %#v", payload)
+	}
+	if payload["publicLiveFresh"] != true || payload["liveConfidenceState"] != "quiet" {
+		t.Fatalf("quiet routed motion should not mark ingest stale: %#v", payload)
 	}
 }
 

@@ -3,6 +3,7 @@ import type { PublicLiveEnvelope } from './types';
 export const LIVE_ENVELOPE_BATCH_WINDOW_MS = 28;
 export const LIVE_ENVELOPE_MAX_WAIT_MS = 240;
 export const LIVE_ENVELOPE_MAX_BATCH_SIZE = 18;
+export const LIVE_ENVELOPE_MAX_PENDING = 900;
 
 export interface DueLiveEnvelopes {
   due: PublicLiveEnvelope[];
@@ -15,6 +16,11 @@ export function liveEnvelopeDisplayAt(message: PublicLiveEnvelope): number {
 
 export function sortLiveEnvelopes(messages: PublicLiveEnvelope[]): PublicLiveEnvelope[] {
   return messages.slice().sort(compareLiveEnvelopes);
+}
+
+export function capLiveEnvelopeQueue(messages: PublicLiveEnvelope[], limit = LIVE_ENVELOPE_MAX_PENDING): PublicLiveEnvelope[] {
+  if (messages.length <= limit) return messages;
+  return sortLiveEnvelopes(messages).slice(-Math.max(0, limit));
 }
 
 export function takeDueLiveEnvelopes(

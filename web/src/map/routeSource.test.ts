@@ -4,6 +4,8 @@ import type { NodeFocus } from './nodeFocus';
 import {
   pruneRoutePayloadGlows,
   routeColorSignature,
+  routeFreshnessLevel,
+  routeFreshnessOpacity,
   routePayloadGlowsToGeoJSON,
   routeSourceSignature,
   routesToGeoJSON,
@@ -102,5 +104,20 @@ describe('route source helpers', () => {
   it('tracks route color changes separately from packet counters', () => {
     expect(routeColorSignature([route('a-b', 'a', 'b', 1, 10)])).toBe(routeColorSignature([route('a-b', 'a', 'b', 1, 999)]));
     expect(routeColorSignature([route('a-b', 'a', 'b', 1)])).not.toBe(routeColorSignature([route('a-b', 'a', 'b', 3)]));
+  });
+
+  it('adds subtle freshness levels without changing selected route behavior', () => {
+    const now = 3_700_000;
+    const fresh = route('fresh', 'a', 'b', 1, 10, now - 60_000);
+    const old = route('old', 'c', 'd', 1, 10, now - 2 * 60 * 60_000);
+    const data = routesToGeoJSON([fresh, old], null, focus(), now);
+
+    expect(routeFreshnessLevel(fresh.lastHeard, now)).toBe(0);
+    expect(routeFreshnessOpacity(old.lastHeard, now)).toBeLessThan(1);
+    expect(data.features[0].properties).toMatchObject({ freshnessLevel: 0, freshnessOpacity: 1 });
+    expect((data.features[1].properties as { freshnessOpacity: number }).freshnessOpacity).toBeLessThan(1);
+    expect(routeSourceSignature([fresh], null, focus(), now)).not.toBe(
+      routeSourceSignature([{ ...fresh, lastHeard: now - 2 * 60 * 60_000 }], null, focus(), now)
+    );
   });
 });

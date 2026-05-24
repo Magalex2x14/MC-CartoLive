@@ -663,8 +663,8 @@ export const mapOverlayStyle: maplibregl.StyleSpecification = {
           ['==', ['get', 'connected'], true],
           ROUTE_CONNECTED_OPACITY,
           ['==', ['get', 'dimmed'], true],
-          ROUTE_DIMMED_OPACITY,
-          ROUTE_BASE_OPACITY
+          ['*', ROUTE_DIMMED_OPACITY, ['coalesce', ['get', 'freshnessOpacity'], 1]],
+          ['*', ROUTE_BASE_OPACITY, ['coalesce', ['get', 'freshnessOpacity'], 1]]
         ]
       }
     },
@@ -1739,13 +1739,13 @@ function addPublicLayers(map: maplibregl.Map) {
         ROUTE_ACTIVE_OPACITY,
         ['==', ['get', 'path'], true],
         ROUTE_PATH_OPACITY,
-        ['==', ['get', 'connected'], true],
-        ROUTE_CONNECTED_OPACITY,
-        ['==', ['get', 'dimmed'], true],
-        ROUTE_DIMMED_OPACITY,
-        ROUTE_BASE_OPACITY
-      ]
-    }
+      ['==', ['get', 'connected'], true],
+      ROUTE_CONNECTED_OPACITY,
+      ['==', ['get', 'dimmed'], true],
+      ['*', ROUTE_DIMMED_OPACITY, ['coalesce', ['get', 'freshnessOpacity'], 1]],
+      ['*', ROUTE_BASE_OPACITY, ['coalesce', ['get', 'freshnessOpacity'], 1]]
+    ]
+  }
   });
 
   addLayerIfMissing(map, {
@@ -2689,10 +2689,11 @@ function updateRouteRendering(
   animatorRef: MutableRefObject<PacketAnimator | null>,
   force = false
 ) {
-  const nextRouteSignature = routeSourceSignature(routes, selectedRouteID, focus);
+  const now = Date.now();
+  const nextRouteSignature = routeSourceSignature(routes, selectedRouteID, focus, now);
   if (force || nextRouteSignature !== routeSignatureRef.current) {
     routeSignatureRef.current = nextRouteSignature;
-    setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routes, selectedRouteID, focus));
+    setSourceData(map, ROUTE_SOURCE, routesToGeoJSON(routes, selectedRouteID, focus, now));
   }
 
   const nextColorSignature = routeColorSignature(routes);

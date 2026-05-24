@@ -19,6 +19,7 @@ type diagnosticFilters struct {
 	DBPath      string
 	IATA        string
 	Name        string
+	Label       string
 	ID          string
 	PublicIATAs string
 	Limit       int
@@ -46,12 +47,13 @@ func main() {
 	flag.StringVar(&filters.DBPath, "db", envString("DB_PATH", "data/meshcore-live.db"), "SQLite database path")
 	flag.StringVar(&filters.IATA, "iata", "", "IATA/region code to inspect")
 	flag.StringVar(&filters.Name, "name", "", "case-insensitive node or observer name search")
+	flag.StringVar(&filters.Label, "label", "", "case-insensitive sanitized public label search")
 	flag.StringVar(&filters.ID, "id", "", "operator-local node ID or public key lookup")
 	flag.StringVar(&filters.PublicIATAs, "public-iatas", os.Getenv("PUBLIC_IATAS"), "comma-separated public IATA allowlist")
 	flag.IntVar(&filters.Limit, "limit", 25, "maximum rows per section")
 	flag.Parse()
-	if strings.TrimSpace(filters.IATA) == "" && strings.TrimSpace(filters.Name) == "" && strings.TrimSpace(filters.ID) == "" {
-		fmt.Fprintln(os.Stderr, "provide at least one of --iata, --name, or --id")
+	if strings.TrimSpace(filters.IATA) == "" && strings.TrimSpace(filters.Name) == "" && strings.TrimSpace(filters.Label) == "" && strings.TrimSpace(filters.ID) == "" {
+		fmt.Fprintln(os.Stderr, "provide at least one of --iata, --name, --label, or --id")
 		os.Exit(2)
 	}
 	report, err := buildDiagnosticReport(context.Background(), filters)
@@ -75,7 +77,8 @@ func reportFromDB(ctx context.Context, db *sql.DB, filters diagnosticFilters) (s
 	if filters.Limit <= 0 || filters.Limit > 200 {
 		filters.Limit = 25
 	}
-	filter := live.NewPublicIATAFilter(csv(filters.PublicIATAs))
+	publicIATAs := csv(filters.PublicIATAs)
+	filter := live.NewPublicIATAFilter(publicIATAs)
 	nodes, err := queryNodes(ctx, db, filters)
 	if err != nil {
 		return "", err
@@ -95,8 +98,9 @@ func reportFromDB(ctx context.Context, db *sql.DB, filters diagnosticFilters) (s
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "MC-CartoLive operator diagnostic\n")
-	fmt.Fprintf(&b, "filters: iata=%q name=%q id=%q db=%q\n", strings.ToUpper(strings.TrimSpace(filters.IATA)), strings.TrimSpace(filters.Name), safeID(filters.ID), filters.DBPath)
-	fmt.Fprintf(&b, "public_iatas=%q\n\n", strings.Join(csv(filters.PublicIATAs), ","))
+	fmt.Fprintf(&b, "filters: iata=%q name=%q label=%q id=%q db=%q\n", strings.ToUpper(strings.TrimSpace(filters.IATA)), strings.TrimSpace(filters.Name), strings.TrimSpace(filters.Label), safeID(filters.ID), filters.DBPath)
+	fmt.Fprintf(&b, "public_iatas=%q\n", strings.Join(publicIATAs, ","))
+	fmt.Fprintf(&b, "live_confidence_note=\"packet ingest freshness, map motion, and mappability are separate checks\"\n\n")
 
 	fmt.Fprintf(&b, "nodes (%d)\n", len(nodes))
 	if len(nodes) == 0 {
@@ -104,17 +108,23 @@ func reportFromDB(ctx context.Context, db *sql.DB, filters diagnosticFilters) (s
 	}
 	for _, row := range nodes {
 		decision := live.PublicNodeMapInclusion(row.node, filter)
-		fmt.Fprintf(&b, "- %s role=%s iatas=%s coords=%s last_seen=%s observations=%d map=%s",
+		labelHints := labelIATAHints(row.node.Name, row.node.IATAsHeardIn)
+		fmt.Fprintf(&b, "- %s role=%s actual_iatas=%s public_iata=%s coords=%s coord_status=%s last_seen=%s observations=%d map=%s",
 			display(row.node.Name, row.node.NodeID),
 			row.node.Role,
 			strings.Join(row.node.IATAsHeardIn, ","),
+			publicIATAMatch(row.node.IATAsHeardIn, publicIATAs, filter),
 			coordString(row.node.Latitude, row.node.Longitude),
+			coordinateStatus(row.node.Latitude, row.node.Longitude),
 			timeString(row.node.LastSeen),
 			row.node.ObservationCount,
 			decision.Reason,
 		)
 		if decision.PositionSource != "" {
 			fmt.Fprintf(&b, " source=%s", decision.PositionSource)
+		}
+		if len(labelHints) > 0 {
+			fmt.Fprintf(&b, " label_iata_hint=%s", strings.Join(labelHints, ","))
 		}
 		fmt.Fprintf(&b, "\n")
 	}
@@ -125,16 +135,22 @@ func reportFromDB(ctx context.Context, db *sql.DB, filters diagnosticFilters) (s
 	}
 	for _, row := range observers {
 		decision := live.PublicObserverFallbackInclusion(row.observer, filter)
-		fmt.Fprintf(&b, "- %s iata=%s coords=%s last_seen=%s packets=%d map=%s",
+		labelHints := labelIATAHints(row.observer.Name, []string{row.observer.IATA})
+		fmt.Fprintf(&b, "- %s actual_iata=%s public_iata=%s coords=%s coord_status=%s last_seen=%s packets=%d map=%s",
 			display(row.observer.Name, row.observer.IATA+" observer"),
 			row.observer.IATA,
+			publicIATAMatch([]string{row.observer.IATA}, publicIATAs, filter),
 			coordString(row.observer.Latitude, row.observer.Longitude),
+			coordinateStatus(row.observer.Latitude, row.observer.Longitude),
 			timeString(row.observer.LastSeen),
 			row.observer.PacketCount,
 			decision.Reason,
 		)
 		if decision.PositionSource != "" {
 			fmt.Fprintf(&b, " source=%s", decision.PositionSource)
+		}
+		if len(labelHints) > 0 {
+			fmt.Fprintf(&b, " label_iata_hint=%s", strings.Join(labelHints, ","))
 		}
 		fmt.Fprintf(&b, "\n")
 	}
@@ -258,6 +274,10 @@ func nodeWhere(filters diagnosticFilters) (string, []any) {
 		clauses = append(clauses, `lower(n.name) LIKE ?`)
 		args = append(args, "%"+strings.ToLower(name)+"%")
 	}
+	if label := strings.TrimSpace(filters.Label); label != "" {
+		clauses = append(clauses, `lower(n.name) LIKE ?`)
+		args = append(args, "%"+strings.ToLower(label)+"%")
+	}
 	if id := strings.TrimSpace(filters.ID); id != "" {
 		clauses = append(clauses, `(n.node_id=? OR upper(n.public_key)=?)`)
 		args = append(args, id, strings.ToUpper(id))
@@ -275,6 +295,10 @@ func observerWhere(filters diagnosticFilters) (string, []any) {
 	if name := strings.TrimSpace(filters.Name); name != "" {
 		clauses = append(clauses, `lower(name) LIKE ?`)
 		args = append(args, "%"+strings.ToLower(name)+"%")
+	}
+	if label := strings.TrimSpace(filters.Label); label != "" {
+		clauses = append(clauses, `lower(name) LIKE ?`)
+		args = append(args, "%"+strings.ToLower(label)+"%")
 	}
 	if id := strings.TrimSpace(filters.ID); id != "" {
 		clauses = append(clauses, `upper(public_key)=?`)
@@ -297,6 +321,10 @@ func packetWhere(filters diagnosticFilters, alias string) (string, []any) {
 	if name := strings.TrimSpace(filters.Name); name != "" {
 		clauses = append(clauses, `lower(`+prefix+`observer_name) LIKE ?`)
 		args = append(args, "%"+strings.ToLower(name)+"%")
+	}
+	if label := strings.TrimSpace(filters.Label); label != "" {
+		clauses = append(clauses, `lower(`+prefix+`observer_name) LIKE ?`)
+		args = append(args, "%"+strings.ToLower(label)+"%")
 	}
 	if id := strings.TrimSpace(filters.ID); id != "" {
 		clauses = append(clauses, `upper(`+prefix+`observer_public_key)=?`)
@@ -322,6 +350,88 @@ func writeActivitySection(b *strings.Builder, title string, items []activitySumm
 		fmt.Fprintf(b, "- iata=%s observer=%s kind=%s count=%d last=%s status=%s\n",
 			item.IATA, display(item.Label, "unknown"), item.Kind, item.Count, timeString(item.LastHeard), item.LastStatus)
 	}
+}
+
+func publicIATAMatch(iatas []string, publicIATAs []string, filter live.PublicIATAFilter) string {
+	normalized := normalizeIATAs(iatas)
+	if len(normalized) == 0 {
+		return "none"
+	}
+	if len(publicIATAs) == 0 {
+		return "unrestricted"
+	}
+	allowed := []string{}
+	filtered := []string{}
+	for _, iata := range normalized {
+		if filter.Allows(iata) {
+			allowed = append(allowed, iata)
+		} else {
+			filtered = append(filtered, iata)
+		}
+	}
+	if len(allowed) > 0 {
+		return "allowed:" + strings.Join(allowed, ",")
+	}
+	return "filtered:" + strings.Join(filtered, ",")
+}
+
+func coordinateStatus(lat *float64, lng *float64) string {
+	decision := live.PublicMapInclusion{}
+	switch {
+	case lat == nil || lng == nil:
+		decision.Reason = live.MapIncludeMissingCoords
+	case *lat == 0 || *lng == 0:
+		decision.Reason = live.MapIncludeZeroCoords
+	default:
+		decision = live.PublicNodeMapInclusion(live.Node{Latitude: lat, Longitude: lng}, live.NewPublicIATAFilter(nil))
+	}
+	if decision.Mappable {
+		return "valid"
+	}
+	return decision.Reason
+}
+
+func labelIATAHints(label string, actualIATAs []string) []string {
+	actual := map[string]struct{}{}
+	for _, iata := range normalizeIATAs(actualIATAs) {
+		actual[iata] = struct{}{}
+	}
+	hints := []string{}
+	for _, token := range strings.FieldsFunc(strings.ToUpper(label), func(r rune) bool {
+		return r < 'A' || r > 'Z'
+	}) {
+		if len(token) != 3 || token[0] != 'Y' {
+			continue
+		}
+		if _, ok := actual[token]; ok {
+			continue
+		}
+		if !containsString(hints, token) {
+			hints = append(hints, token)
+		}
+	}
+	return hints
+}
+
+func normalizeIATAs(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		for _, item := range csv(value) {
+			if !containsString(out, item) {
+				out = append(out, item)
+			}
+		}
+	}
+	return out
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func coordString(lat *float64, lng *float64) string {

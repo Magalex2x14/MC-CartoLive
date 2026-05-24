@@ -38,9 +38,13 @@ INSERT INTO live_edge_events VALUES
 	}
 	for _, want := range []string{
 		"DD0236FF",
+		"actual_iatas=YTR",
+		"public_iata=allowed:YTR",
+		"coord_status=missing_coords",
 		"map=missing_coords",
 		"Corebot",
 		"Positioned Observer",
+		"actual_iata=YTR",
 		"map=mappable source=observer_position_used",
 		"recent packet observations (1)",
 		"recent routed edge events (1)",
@@ -57,8 +61,16 @@ INSERT INTO live_edge_events VALUES
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(nameReport, "iatas=YGK") {
+	if !strings.Contains(nameReport, "actual_iatas=YGK") || !strings.Contains(nameReport, "label_iata_hint=YTR") {
 		t.Fatalf("name report should show YTR-named node is actually YGK:\n%s", nameReport)
+	}
+
+	labelReport, err := reportFromDB(context.Background(), db, diagnosticFilters{Label: "Positioned", PublicIATAs: "YTR,YGK", Limit: 25})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(labelReport, "Positioned Observer") || !strings.Contains(labelReport, "coord_status=valid") {
+		t.Fatalf("label report should support sanitized label lookup:\n%s", labelReport)
 	}
 }
 

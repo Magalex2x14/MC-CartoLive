@@ -42,6 +42,7 @@ cd backend
 go run ./cmd/diagnose --db ../data/meshcore-live.db --iata YTR --public-iatas "$PUBLIC_IATAS"
 go run ./cmd/diagnose --db ../data/meshcore-live.db --name Krabs --public-iatas "$PUBLIC_IATAS"
 go run ./cmd/diagnose --db ../data/meshcore-live.db --name Corebot --public-iatas "$PUBLIC_IATAS"
+go run ./cmd/diagnose --db ../data/meshcore-live.db --label Corebot --public-iatas "$PUBLIC_IATAS"
 ```
 
 On the production Docker host, use the bundled container binary:
@@ -61,11 +62,18 @@ Map reasons:
 Names are labels, not identity. If a node name contains `YTR` but its IATA is
 `YGK`, the map treats it as `YGK`.
 
+The 2.2 diagnostic output also shows `actual_iatas`, `public_iata`,
+`coord_status`, `source`, and `label_iata_hint` so coordinate/IATA truth is
+visible without exposing raw keys or packet hashes.
+
 ## Verify Live Motion
 
 - Top packet total should continue increasing while MQTT is connected.
-- `/healthz` should show low `cacheAgeMs` and `mqttLastMessageAgeMs`.
+- `/healthz` should show low `cacheAgeMs`, low `mqttLastMessageAgeMs`,
+  `packetIngestState=fresh`, and `liveConfidenceState=fresh` or `quiet`.
 - `recentRoutePulseAgeMs` should stay recent when routed traffic exists.
+- `mapMotionState=quiet` can be normal when packets are arriving but no routed
+  or observer-positioned activity is currently mappable.
 - The browser WebSocket status should recover after a forced reconnect and
   packet comets should resume without duplicated stale bursts.
 

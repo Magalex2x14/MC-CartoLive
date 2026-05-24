@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 2.2.5 - 2026-05-24
+
+- Completed the 2.2.0-2.2.5 live-confidence roadmap as an internal-first reliability pass.
+- Added explicit public-safe live-confidence states for packet ingest, public cache freshness, routed pulse motion, observer burst motion, and overall live confidence.
+- Tightened packet ingest freshness around the production target of packets normally arriving less than five seconds stale, while keeping quiet routed traffic separate from broken ingest.
+- Expanded `mc-diagnose` with coordinate/IATA truth fields, public allowlist status, coordinate status, node/observer position source, label lookup, and label-vs-actual-IATA hints.
+- Hardened frontend reconnect recovery by deduping repeated live activity and route pulse IDs after snapshot reconciliation.
+- Bounded and instrumented live pending queues, added visibility-pause diagnostics, and kept browser diagnostics local-only.
+- Added subtle route freshness de-emphasis for older known routes without adding public map labels or panels.
+- Updated operator runbooks, production notes, and the roadmap for the 2.2 live-confidence release gate.
+
 ## 2.1.10 - 2026-05-24
 
 - Completed the 2.1.6-2.1.10 reliability roadmap as a no-new-map-features hardening pass.

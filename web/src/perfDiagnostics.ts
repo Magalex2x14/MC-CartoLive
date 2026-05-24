@@ -6,7 +6,9 @@ export interface PerfCounters {
   routeSourceUpdates: number;
   nodeSourceUpdates: number;
   otherSourceUpdates: number;
+  livePendingQueueSize: number;
   vcrReplayQueueSize: number;
+  visibilityPauses: number;
 }
 
 const STORAGE_KEY = 'mc-cartolive-debug-perf';
@@ -38,7 +40,9 @@ export function ensurePerfDiagnostics(): PerfCounters | null {
     routeSourceUpdates: 0,
     nodeSourceUpdates: 0,
     otherSourceUpdates: 0,
-    vcrReplayQueueSize: 0
+    livePendingQueueSize: 0,
+    vcrReplayQueueSize: 0,
+    visibilityPauses: 0
   };
   window.__mcCartoLivePerf = counters;
   return counters;
@@ -74,6 +78,18 @@ export function recordVcrReplayQueueSize(size: number): void {
   const counters = ensurePerfDiagnostics();
   if (!counters) return;
   counters.vcrReplayQueueSize = Math.max(0, Math.floor(size));
+}
+
+export function recordLivePendingQueueSize(size: number): void {
+  const counters = ensurePerfDiagnostics();
+  if (!counters) return;
+  counters.livePendingQueueSize = Math.max(0, Math.floor(size));
+}
+
+export function recordVisibilityPause(): void {
+  const counters = ensurePerfDiagnostics();
+  if (!counters) return;
+  counters.visibilityPauses += 1;
 }
 
 function safeStorage(): Storage | undefined {

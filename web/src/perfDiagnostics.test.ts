@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ensurePerfDiagnostics,
+  recordLivePendingQueueSize,
   recordPacketFrame,
   recordPacketSkippedFrame,
   recordSourceUpdate,
-  recordVcrReplayQueueSize
+  recordVcrReplayQueueSize,
+  recordVisibilityPause
 } from './perfDiagnostics';
 
 describe('perf diagnostics', () => {
@@ -22,7 +24,9 @@ describe('perf diagnostics', () => {
     recordSourceUpdate('cluster-activity');
     recordPacketFrame(3, 2, 12.34);
     recordPacketSkippedFrame();
+    recordLivePendingQueueSize(87.1);
     recordVcrReplayQueueSize(42.8);
+    recordVisibilityPause();
 
     expect(window.__mcCartoLivePerf).toMatchObject({
       routeSourceUpdates: 1,
@@ -32,7 +36,9 @@ describe('perf diagnostics', () => {
       packetActiveObserverBursts: 2,
       packetFrameMs: 12.3,
       packetSkippedFrames: 1,
-      vcrReplayQueueSize: 42
+      livePendingQueueSize: 87,
+      vcrReplayQueueSize: 42,
+      visibilityPauses: 1
     });
   });
 });

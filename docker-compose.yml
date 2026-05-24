@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-2.1.10}
+        APP_VERSION: ${APP_VERSION:-2.2.5}
         VITE_BUILD_NUMBER: ${VITE_BUILD_NUMBER:-}
         VITE_GIT_SHA: ${VITE_GIT_SHA:-}
         VITE_BUILD_TIME: ${VITE_BUILD_TIME:-}
@@ -13,7 +13,7 @@ services:
     env_file:
       - .env
     environment:
-      APP_VERSION: ${APP_VERSION:-2.1.10}
+      APP_VERSION: ${APP_VERSION:-2.2.5}
       GIT_SHA: ${VITE_GIT_SHA:-}
       BUILD_TIME: ${VITE_BUILD_TIME:-}
     volumes:

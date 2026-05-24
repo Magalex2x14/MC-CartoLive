@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicLiveEnvelope } from './types';
-import { nextLiveEnvelopeDelayMs, sortLiveEnvelopes, takeDueLiveEnvelopes } from './livePacing';
+import { capLiveEnvelopeQueue, nextLiveEnvelopeDelayMs, sortLiveEnvelopes, takeDueLiveEnvelopes } from './livePacing';
 
 const event = (id: string, displayAt: number, seq: number): PublicLiveEnvelope => ({
   v: 1,
@@ -45,5 +45,15 @@ describe('live envelope pacing', () => {
     expect(due).toHaveLength(3);
     expect(pending).toHaveLength(3);
     expect(nextLiveEnvelopeDelayMs(pending, 1000)).toBe(0);
+  });
+
+  it('caps pending live queues by keeping the newest display events', () => {
+    const messages = Array.from({ length: 6 }, (_, index) => event(`m-${index}`, 1000 + index, index));
+
+    expect(capLiveEnvelopeQueue(messages, 3).map((message) => (message.type === 'event' ? message.data.id : message.type))).toEqual([
+      'm-3',
+      'm-4',
+      'm-5'
+    ]);
   });
 });

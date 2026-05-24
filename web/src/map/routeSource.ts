@@ -3,6 +3,9 @@ import { isMappableEndpoint } from './geo';
 import type { NodeFocus } from './nodeFocus';
 
 export const routeColors = ['#2563eb', '#06b6d4', '#22c55e', '#f97316', '#ef4444'];
+export const ROUTE_FRESH_MS = 15 * 60_000;
+export const ROUTE_RECENT_MS = 60 * 60_000;
+export const ROUTE_KNOWN_MS = 6 * 60 * 60_000;
 
 export interface RoutePayloadGlow {
   color: string;
@@ -18,7 +21,8 @@ type FeatureCollection = {
 export function routesToGeoJSON(
   routes: PublicRoute[],
   selectedRouteID: string | null,
-  focus: NodeFocus
+  focus: NodeFocus,
+  now = Date.now()
 ): FeatureCollection {
   const hasFocusedRoute = Boolean(selectedRouteID || focus.selectedNodeID || focus.pathRouteIDs.size > 0);
   return {
@@ -38,7 +42,9 @@ export function routesToGeoJSON(
             selected,
             path,
             connected,
-            dimmed: hasFocusedRoute && !selected && !path && !connected
+            dimmed: hasFocusedRoute && !selected && !path && !connected,
+            freshnessLevel: routeFreshnessLevel(route.lastHeard, now),
+            freshnessOpacity: routeFreshnessOpacity(route.lastHeard, now)
           },
           geometry: {
             type: 'LineString',
@@ -52,13 +58,13 @@ export function routesToGeoJSON(
   };
 }
 
-export function routeSourceSignature(routes: PublicRoute[], selectedRouteID: string | null, focus: NodeFocus): string {
+export function routeSourceSignature(routes: PublicRoute[], selectedRouteID: string | null, focus: NodeFocus, now = Date.now()): string {
   return [
     selectedRouteID ?? '',
     focus.selectedNodeID ?? '',
     stableSetSignature(focus.connectedRouteIDs),
     stableSetSignature(focus.pathRouteIDs),
-    routes.map(routeRenderIdentity).sort().join('|')
+    routes.map((route) => routeRenderIdentity(route, now)).sort().join('|')
   ].join('~');
 }
 
@@ -126,10 +132,33 @@ function routePayloadGlowIntensity(glow: RoutePayloadGlow, now: number): number 
   return Math.pow(1 - progress, 0.72);
 }
 
-function routeRenderIdentity(route: PublicRoute): string {
+export function routeFreshnessLevel(lastHeard: number, now: number): number {
+  if (lastHeard <= 0) return 3;
+  const age = Math.max(0, now - lastHeard);
+  if (age <= ROUTE_FRESH_MS) return 0;
+  if (age <= ROUTE_RECENT_MS) return 1;
+  if (age <= ROUTE_KNOWN_MS) return 2;
+  return 3;
+}
+
+export function routeFreshnessOpacity(lastHeard: number, now: number): number {
+  switch (routeFreshnessLevel(lastHeard, now)) {
+    case 0:
+      return 1;
+    case 1:
+      return 0.78;
+    case 2:
+      return 0.54;
+    default:
+      return 0.34;
+  }
+}
+
+function routeRenderIdentity(route: PublicRoute, now: number): string {
   return [
     route.id,
     route.frequencyBucket,
+    routeFreshnessLevel(route.lastHeard, now),
     route.from.nodeId,
     route.from.lat,
     route.from.lng,

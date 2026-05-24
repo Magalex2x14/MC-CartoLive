@@ -240,6 +240,51 @@ describe('public app state', () => {
     expect(next.stats?.activeRoutes).toBe(1);
   });
 
+  it('dedupes live events after websocket reconnect recovery', () => {
+    const state = initialAppState(publicState);
+    const activityMessage: PublicLiveEnvelope = {
+      v: 1,
+      type: 'event',
+      event: 'activity',
+      data: {
+        id: 'activity-reconnect',
+        kind: 'packet',
+        payloadTypeName: 'ADVERT',
+        heardAt: 1_700_000_020_000,
+        hopCount: 0,
+        hasRoute: false,
+        animationState: 'observer',
+        resolutionBucket: 'observer_only',
+        observerLocation: { label: 'Toronto observer', iata: 'YYZ', lat: 43.65, lng: -79.38 }
+      }
+    };
+    const pulseMessage: PublicLiveEnvelope = {
+      v: 1,
+      type: 'event',
+      event: 'routePulse',
+      data: {
+        id: 'pulse-reconnect',
+        payloadTypeName: 'ADVERT',
+        heardAt: 1_700_000_030_000,
+        segments: [
+          {
+            routeId: 'r-ab',
+            from: publicState.routes[0].from,
+            to: publicState.routes[0].to,
+            distanceKm: 93
+          }
+        ]
+      }
+    };
+
+    const once = applyPublicEnvelope(applyPublicEnvelope(state, activityMessage), pulseMessage);
+    const twice = applyPublicEnvelope(applyPublicEnvelope(once, activityMessage), pulseMessage);
+
+    expect(twice.activity.filter((item) => item.id === 'activity-reconnect')).toHaveLength(1);
+    expect(twice.pulses.filter((item) => item.id === 'pulse-reconnect')).toHaveLength(1);
+    expect(twice.routes.find((route) => route.id === 'r-ab')?.packetCount).toBe(8);
+  });
+
   it('summarizes and prunes route activity into last-15-minute bins', () => {
     const now = 1_700_000_900_000;
     const state = initialAppState(publicState);

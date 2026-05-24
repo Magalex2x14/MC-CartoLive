@@ -1,45 +1,55 @@
-# MC-CartoLive 2.1 Reliability Roadmap
+# MC-CartoLive 2.2 Live Confidence Roadmap
 
-The 2.1 line is feature-frozen. Patch releases after 2.1.0 harden the same
-public map so it always looks live, accurate, and explainable.
+The 2.2 line keeps the public feature set stable and improves the core promise:
+the public map should look live, accurate, and explainable.
 
-## 2.1.6 - Data Integrity And Inclusion Diagnostics
+## 2.2.0 - Live Confidence Baseline
 
-- Centralize node and observer map-inclusion decisions.
-- Explain hidden records with `missing_coords`, `zero_coords`,
-  `outside_bounds`, `iata_filtered`, or `mappable`.
-- Add a local operator diagnostic command for IATA/name/ID investigations.
-- Keep diagnostics local; do not add a public debug API.
+- Classify packet ingest, public cache, routed pulse motion, observer burst
+  motion, WebSocket, and DB readiness as separate operational states.
+- Treat packet ingest as fresh only when MQTT packets are normally less than
+  five seconds stale.
+- Keep `/healthz` cheap and `/readyz` production-oriented without exposing
+  private packet or broker details.
 
-## 2.1.7 - Always-Live Recovery
+## 2.2.1 - Inclusion Diagnostics v2
 
-- Keep WebSocket reconnects bounded and explicit.
-- Reconcile from a fresh public snapshot after reconnect.
-- Track public cache age, route-pulse age, observer-burst age, packet totals,
-  and MQTT last-message age in public-safe health/readiness responses.
+- Expand `mc-diagnose` around coordinate and IATA truth.
+- Report actual IATAs, public allowlist matches, coordinate status, mappability
+  reason, and node/observer position source.
+- Support `--iata`, `--name`, `--label`, and `--id` operator lookups.
 
-## 2.1.8 - Animation Smoothness Budget
+## 2.2.2 - Always-Live Recovery
 
-- Preserve packet comet visibility during bursty live traffic.
-- Keep replay/live schedulers generation-safe.
-- Keep source updates batched and expose browser-local diagnostics only.
+- Reconcile from public snapshots after reconnect without duplicating stale
+  packet comets or packet counters.
+- Keep stale-state diagnosis in logs/runbooks and local operator tools.
+- Do not add public debug endpoints or outbound alert webhooks.
 
-## 2.1.9 - SQLite And API Pressure Reduction
+## 2.2.3 - Smoothness On Modest Systems
 
-- Keep public state/history compatible.
-- Add indexes only where live query paths benefit.
-- Keep repeated VCR summary/history reads on bounded caches.
+- Keep live queues bounded and paced so bursty traffic remains visible.
+- Track browser-local diagnostics for live queue size, active comets, source
+  updates, frame skips, VCR queue size, and hidden-tab pauses.
+- Keep source updates batched and route/node signatures stable.
 
-## 2.1.10 - Production Runbook And Release Gate
+## 2.2.4 - Subtle Public Freshness Polish
 
-- Maintain a definitive operator runbook.
-- Run backend tests, frontend tests/build, Docker build, health/readiness,
-  public state, history, websocket, and browser smoke checks before release.
-- Audit public JSON and WebSocket payloads for privacy regressions before tags.
+- De-emphasize older known routes with restrained opacity changes.
+- Avoid public freshness labels, extra panels, or noisy map chrome.
+- Preserve VCR, live clock, palettes, Legend, route plotting, and mobile layout.
+
+## 2.2.5 - Production Candidate Gate
+
+- Gate releases with backend tests, frontend tests/build, Docker build,
+  health/readiness, public state, history, WebSocket, VCR replay, and browser
+  smoke checks.
+- Require a 24h live soak before declaring the 2.2 line production-ready.
+- Run privacy checks before tags.
 
 ## Non-Goals
 
-- No new public map features in the 2.1 patch line.
+- No major public map feature expansion in the 2.2 line.
 - No public raw packet hashes, raw path hex, full public keys, resolver debug
   fields, private payloads, broker credentials, or operator config.
 - No node/observer merging by display name.

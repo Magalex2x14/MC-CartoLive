@@ -157,9 +157,18 @@ func (s *Server) operationalStatus(ctx context.Context, includeDB bool) map[stri
 			payload["unresolved"] = publicResolutionCount(state.Stats.ResolutionBuckets, "unresolved_path")
 			routePulseAgeMs := publicLatestAgeMs(now, latestRoutePulseAt(state.RecentPulses))
 			observerBurstAgeMs := publicLatestAgeMs(now, latestObserverActivityAt(state.RecentActivity))
+			liveHealth := publicLiveHealth(cacheStatus.CacheAgeMs, routePulseAgeMs, observerBurstAgeMs, mqttStatus)
 			payload["recentRoutePulseAgeMs"] = routePulseAgeMs
 			payload["recentObserverBurstAgeMs"] = observerBurstAgeMs
-			payload["publicLiveFresh"] = publicLiveFresh(cacheStatus.CacheAgeMs, routePulseAgeMs, observerBurstAgeMs, mqttStatus.LastMessageAgeMs)
+			payload["packetIngestState"] = liveHealth.PacketIngestState
+			payload["publicCacheState"] = liveHealth.PublicCacheState
+			payload["routeMotionState"] = liveHealth.RouteMotionState
+			payload["observerMotionState"] = liveHealth.ObserverMotionState
+			payload["mapMotionState"] = liveHealth.MapMotionState
+			payload["liveConfidenceState"] = liveHealth.LiveConfidenceState
+			payload["packetIngestFresh"] = liveHealth.PacketIngestFresh
+			payload["mapMotionFresh"] = liveHealth.MapMotionFresh
+			payload["publicLiveFresh"] = liveHealth.PublicLiveFresh
 		}
 	}
 	if includeDB {
@@ -199,11 +208,87 @@ func latestObserverActivityAt(items []live.PublicActivity) int64 {
 	return latest
 }
 
-func publicLiveFresh(cacheAgeMs int64, routePulseAgeMs int64, observerBurstAgeMs int64, mqttAgeMs int64) bool {
-	if cacheAgeMs > 30_000 || mqttAgeMs > 120_000 {
-		return false
+const (
+	liveStateFresh        = "fresh"
+	liveStateQuiet        = "quiet"
+	liveStateStale        = "stale"
+	liveStateMissing      = "missing"
+	liveStateDisconnected = "disconnected"
+	liveStateWarming      = "warming"
+	liveStateMoving       = "moving"
+	liveStateDegraded     = "degraded"
+)
+
+type publicLiveHealthSnapshot struct {
+	PacketIngestState   string
+	PublicCacheState    string
+	RouteMotionState    string
+	ObserverMotionState string
+	MapMotionState      string
+	LiveConfidenceState string
+	PacketIngestFresh   bool
+	MapMotionFresh      bool
+	PublicLiveFresh     bool
+}
+
+func publicLiveHealth(cacheAgeMs int64, routePulseAgeMs int64, observerBurstAgeMs int64, mqttStatus imqtt.Status) publicLiveHealthSnapshot {
+	packetState := liveStateFresh
+	if !mqttStatus.Connected {
+		packetState = liveStateDisconnected
+	} else if mqttStatus.LastMessageAgeMs < 0 {
+		packetState = liveStateMissing
+	} else if mqttStatus.LastMessageAgeMs > 5_000 {
+		packetState = liveStateStale
 	}
-	return (routePulseAgeMs >= 0 && routePulseAgeMs <= 120_000) || (observerBurstAgeMs >= 0 && observerBurstAgeMs <= 120_000)
+
+	cacheState := liveStateFresh
+	if cacheAgeMs < 0 {
+		cacheState = liveStateWarming
+	} else if cacheAgeMs > 30_000 {
+		cacheState = liveStateStale
+	}
+
+	routeState := motionState(routePulseAgeMs)
+	observerState := motionState(observerBurstAgeMs)
+	mapMotionFresh := routeState == liveStateFresh || observerState == liveStateFresh
+	mapMotionState := liveStateQuiet
+	if mapMotionFresh {
+		mapMotionState = liveStateMoving
+	} else if routeState == liveStateMissing && observerState == liveStateMissing {
+		mapMotionState = liveStateMissing
+	}
+
+	packetFresh := packetState == liveStateFresh
+	cacheFresh := cacheState == liveStateFresh
+	liveFresh := packetFresh && cacheFresh
+	confidence := liveStateFresh
+	if !liveFresh {
+		confidence = liveStateDegraded
+	} else if !mapMotionFresh {
+		confidence = liveStateQuiet
+	}
+
+	return publicLiveHealthSnapshot{
+		PacketIngestState:   packetState,
+		PublicCacheState:    cacheState,
+		RouteMotionState:    routeState,
+		ObserverMotionState: observerState,
+		MapMotionState:      mapMotionState,
+		LiveConfidenceState: confidence,
+		PacketIngestFresh:   packetFresh,
+		MapMotionFresh:      mapMotionFresh,
+		PublicLiveFresh:     liveFresh,
+	}
+}
+
+func motionState(ageMs int64) string {
+	if ageMs < 0 {
+		return liveStateMissing
+	}
+	if ageMs <= 120_000 {
+		return liveStateFresh
+	}
+	return liveStateQuiet
 }
 
 func publicResolutionCount(buckets map[string]map[string]int64, name string) int64 {

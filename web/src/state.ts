@@ -108,6 +108,7 @@ export function applyPublicEnvelope(state: AppState, message: PublicLiveEnvelope
   }
   if (message.event === 'activity') {
     const activity = withEnvelopeTiming(message.data, message);
+    if (state.activity.some((item) => item.id === activity.id)) return state;
     const packets = isPacketActivity(activity) ? (state.stats?.packets ?? 0) + 1 : state.stats?.packets;
     const serverTime = Math.max(state.serverTime, message.serverTime ?? activity.heardAt);
     return {
@@ -120,6 +121,7 @@ export function applyPublicEnvelope(state: AppState, message: PublicLiveEnvelope
   }
   if (message.event === 'routePulse') {
     const pulse = withEnvelopeTiming(message.data, message);
+    if (state.pulses.some((item) => item.id === pulse.id)) return state;
     const routes = upsertPulseRoutes(state.routes, pulse);
     const serverTime = Math.max(state.serverTime, message.serverTime ?? pulse.heardAt);
     const routeTraces = addRouteTraceHits(state.routeTraces, pulse, serverTime);

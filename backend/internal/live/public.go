@@ -157,14 +157,24 @@ func BuildPublicLiveState(state State, stats PublicStats) PublicLiveState {
 	for _, packet := range state.RecentPackets {
 		activity = append(activity, PublicActivityFromPacket(packet, routesByPacket[packet.PacketHash], observerLocations.locationForPacket(packet)))
 	}
-	nodes := make([]PublicNode, 0, len(state.Nodes))
+	nodes := make([]PublicNode, 0, len(state.Nodes)+len(state.Observers))
 	observerPublicKeys := map[string]struct{}{}
 	for _, observer := range state.Observers {
 		observerPublicKeys[strings.ToUpper(observer.PublicKey)] = struct{}{}
 	}
+	renderedPublicKeys := map[string]struct{}{}
 	for _, node := range state.Nodes {
 		if item, ok := PublicNodeFromNode(node); ok {
 			_, item.IsObserver = observerPublicKeys[strings.ToUpper(node.PublicKey)]
+			nodes = append(nodes, item)
+			renderedPublicKeys[strings.ToUpper(node.PublicKey)] = struct{}{}
+		}
+	}
+	for _, observer := range state.Observers {
+		if _, exists := renderedPublicKeys[strings.ToUpper(observer.PublicKey)]; exists {
+			continue
+		}
+		if item, ok := PublicNodeFromObserver(observer); ok {
 			nodes = append(nodes, item)
 		}
 	}
@@ -195,6 +205,29 @@ func PublicNodeFromNode(node Node) (PublicNode, bool) {
 		FirstSeen:     node.FirstSeen,
 		IATAsHeardIn:  append([]string{}, node.IATAsHeardIn...),
 		ActivityCount: node.ObservationCount,
+	}, true
+}
+
+func PublicNodeFromObserver(observer Observer) (PublicNode, bool) {
+	if observer.Latitude == nil || observer.Longitude == nil || !validPublicCoords(*observer.Latitude, *observer.Longitude) {
+		return PublicNode{}, false
+	}
+	iata := strings.ToUpper(strings.TrimSpace(observer.IATA))
+	iatas := []string{}
+	if iata != "" {
+		iatas = append(iatas, iata)
+	}
+	return PublicNode{
+		ID:            publicObserverNodeID(observer),
+		Label:         publicObserverLabel(observer.Name, observer.IATA),
+		Role:          "unknown",
+		IsObserver:    true,
+		Latitude:      *observer.Latitude,
+		Longitude:     *observer.Longitude,
+		LastSeen:      observer.LastSeen,
+		FirstSeen:     observer.LastSeen,
+		IATAsHeardIn:  iatas,
+		ActivityCount: observer.PacketCount,
 	}, true
 }
 
@@ -651,6 +684,20 @@ func publicNodeID(id string) string {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(strings.ToUpper(id)))
 		return fmt.Sprintf("n-%08x", h.Sum32())
+	}
+	return id
+}
+
+func publicObserverNodeID(observer Observer) string {
+	seed := strings.ToUpper(strings.TrimSpace(observer.PublicKey))
+	if seed == "" {
+		seed = strings.ToUpper(strings.TrimSpace(observer.Name)) + "|" + strings.ToUpper(strings.TrimSpace(observer.IATA))
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(seed))
+	id := fmt.Sprintf("o-%08x", h.Sum32())
+	if iata := strings.ToLower(strings.TrimSpace(observer.IATA)); iata != "" {
+		id += "-" + iata
 	}
 	return id
 }

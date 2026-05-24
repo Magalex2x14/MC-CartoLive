@@ -20,6 +20,8 @@ func TestPublicLiveStateStripsSensitiveFieldsAndInvalidCoordinates(t *testing.T)
 	invalidLat := 0.0
 	invalidLng := 0.0
 	publicKey := "AA00000000000000000000000000000000000000000000000000000000000000"
+	observerOnlyKey := "CC00000000000000000000000000000000000000000000000000000000000000"
+	invalidObserverKey := "DD00000000000000000000000000000000000000000000000000000000000000"
 	packetHash := "secret-packet-hash"
 	pathHex := "AABBCC"
 	summary := "private packet text"
@@ -55,6 +57,22 @@ func TestPublicLiveStateStripsSensitiveFieldsAndInvalidCoordinates(t *testing.T)
 				Name:      publicKey[:8],
 				Latitude:  &lat,
 				Longitude: &lng,
+			},
+			{
+				PublicKey:   observerOnlyKey,
+				IATA:        "YKF",
+				Name:        "YKF Corebot",
+				Latitude:    &lat,
+				Longitude:   &lng,
+				LastSeen:    1747665456000,
+				PacketCount: 42,
+			},
+			{
+				PublicKey: invalidObserverKey,
+				IATA:      "YKF",
+				Name:      "Invalid observer",
+				Latitude:  &invalidLat,
+				Longitude: &invalidLng,
 			},
 		},
 		RecentPackets: []live.PacketObservation{
@@ -102,11 +120,27 @@ func TestPublicLiveStateStripsSensitiveFieldsAndInvalidCoordinates(t *testing.T)
 	}
 
 	publicState := live.BuildPublicLiveState(state, live.PublicStats{Packets: 1, MQTTConnected: true})
-	if len(publicState.Nodes) != 1 {
-		t.Fatalf("public nodes = %d, want 1", len(publicState.Nodes))
+	if len(publicState.Nodes) != 2 {
+		t.Fatalf("public nodes = %d, want 2", len(publicState.Nodes))
 	}
 	if publicState.Nodes[0].Label == publicKey[:8] {
 		t.Fatalf("public label leaked a public key prefix")
+	}
+	var observerOnly *live.PublicNode
+	for i := range publicState.Nodes {
+		if publicState.Nodes[i].Label == "YKF Corebot" {
+			observerOnly = &publicState.Nodes[i]
+			break
+		}
+	}
+	if observerOnly == nil {
+		t.Fatalf("observer-only endpoint with valid coordinates was not added as a public node: %#v", publicState.Nodes)
+	}
+	if !observerOnly.IsObserver || observerOnly.Latitude != lat || observerOnly.Longitude != lng || observerOnly.ActivityCount != 42 {
+		t.Fatalf("observer-only public node = %#v, want observer marker with sanitized activity", observerOnly)
+	}
+	if strings.Contains(observerOnly.ID, observerOnlyKey[:8]) || strings.Contains(observerOnly.ID, observerOnlyKey) {
+		t.Fatalf("observer-only public node id leaked public key: %s", observerOnly.ID)
 	}
 	if len(publicState.Routes) != 1 {
 		t.Fatalf("public routes = %d, want 1", len(publicState.Routes))
@@ -145,6 +179,10 @@ func TestPublicLiveStateStripsSensitiveFieldsAndInvalidCoordinates(t *testing.T)
 		"resolutionReason",
 		publicKey,
 		publicKey[:8],
+		observerOnlyKey,
+		observerOnlyKey[:8],
+		invalidObserverKey,
+		invalidObserverKey[:8],
 		packetHash,
 		pathHex,
 		summary,

@@ -51,8 +51,7 @@ func coordinateInclusion(lat *float64, lng *float64, positionSource string) Publ
 	if *lat == 0 || *lng == 0 {
 		return PublicMapInclusion{Reason: MapIncludeZeroCoords}
 	}
-	if math.IsNaN(*lat) || math.IsNaN(*lng) || math.IsInf(*lat, 0) || math.IsInf(*lng, 0) ||
-		*lat < 41 || *lat > 84 || *lng < -142 || *lng > -52 {
+	if math.IsNaN(*lat) || math.IsNaN(*lng) || math.IsInf(*lat, 0) || math.IsInf(*lng, 0) {
 		return PublicMapInclusion{Reason: MapIncludeOutsideBounds}
 	}
 	return PublicMapInclusion{

@@ -1,10 +1,10 @@
 import type { PublicNode, PublicRouteEndpoint } from '../types';
 
 export const CANADA_MAP_BOUNDS = {
-  minLat: 41,
-  maxLat: 84,
-  minLng: -142,
-  maxLng: -52
+  minLat: -90,
+  maxLat: 90,
+  minLng: -180,
+  maxLng: 180
 };
 
 export function isMappableLatLng(lat: number, lng: number): boolean {

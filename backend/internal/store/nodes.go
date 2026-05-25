@@ -16,8 +16,8 @@ import (
 	"meshcore-canada-live-map/backend/internal/resolve"
 )
 
-const mappableCoordinatesSQL = `latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0 AND latitude BETWEEN 41 AND 84 AND longitude BETWEEN -142 AND -52`
-const mappableNodeCoordinatesSQL = `n.latitude IS NOT NULL AND n.longitude IS NOT NULL AND n.latitude != 0 AND n.longitude != 0 AND n.latitude BETWEEN 41 AND 84 AND n.longitude BETWEEN -142 AND -52`
+const mappableCoordinatesSQL = `latitude IS NOT NULL AND longitude IS NOT NULL AND latitude != 0 AND longitude != 0`
+const mappableNodeCoordinatesSQL = `n.latitude IS NOT NULL AND n.longitude IS NOT NULL AND n.latitude != 0 AND n.longitude != 0`
 
 func (s *Store) UpsertAdvertNode(ctx context.Context, iata string, advert meshcore.Advert, heardAt int64) (live.Node, error) {
 	nodeID := uuid.NewString()
@@ -537,9 +537,5 @@ func validMapCoords(lat float64, lng float64) bool {
 		!math.IsInf(lat, 0) &&
 		!math.IsInf(lng, 0) &&
 		lat != 0 &&
-		lng != 0 &&
-		lat >= 41 &&
-		lat <= 84 &&
-		lng >= -142 &&
-		lng <= -52
+		lng != 0
 }

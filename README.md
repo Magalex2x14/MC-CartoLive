@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.4.7
+# MeshCore MQTT Live Map v2.4.8
 
 Also known as **MC-CartoLive**.
 
@@ -33,8 +33,9 @@ Real public map data from the production UI:
   live packet comets, observer activity, message bubbles, Plot Routes, a
   reachable-node phonebook, OpenFreeMap 3D mode, light/dark themes, and palette
   controls.
-- Provides a hidden-by-default VCR for 24h public replay and a Packets tab for
-  true-path packet records backed only by persisted routed edge events.
+- Provides hidden-by-default 24h VCR replay, a Packets tab for true-path packet
+  records, a Perf tab for public-safe runtime counters, and a NetGraph tab for a
+  live connected-node graph using the same sanitized public routes and events.
 - Includes operator tools for release checks, live droplet smoke checks, soak
   checks, performance counters, and local-only map-inclusion diagnostics.
 - Keeps public APIs sanitized: no broker credentials, channel secrets, live DB
@@ -104,7 +105,7 @@ docker run --rm -p 8080:8080 \
   -e PUBLIC_MODE=true \
   -e PUBLIC_BASE_URL=http://localhost:8080 \
   -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
-  ghcr.io/n30nex/mc-cartolive:2.4.7
+  ghcr.io/n30nex/mc-cartolive:2.4.8
 ```
 
 For a real public deployment, mount persistent data and provide private MQTT
@@ -115,7 +116,7 @@ docker run -d --name mc-cartolive \
   -p 8080:8080 \
   --env-file .env \
   -v mc-cartolive-data:/app/data \
-  ghcr.io/n30nex/mc-cartolive:2.4.7
+  ghcr.io/n30nex/mc-cartolive:2.4.8
 ```
 
 The image includes the synthetic demo fixture, runs as non-root `appuser`, and
@@ -186,7 +187,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.4.7 release path is clone + Docker Compose on a VPS or local
+The recommended v2.4.8 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

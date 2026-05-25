@@ -1,6 +1,6 @@
 {
   "name": "mc-cartolive-web",
-  "version": "2.4.7",
+  "version": "2.4.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,8 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@types/d3-force": "^3.0.10",
+    "d3-force": "^3.0.0",
     "lucide-react": "^0.468.0",
     "maplibre-gl": "^5.19.0",
     "react": "^19.2.0",

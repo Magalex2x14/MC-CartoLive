@@ -114,6 +114,9 @@ Use this checklist after map, playback, or styling changes:
   without duplicate stale bursts.
 - Packets replay compacts the panel, pauses live flow, fits the full true path,
   waits briefly, and animates one selected packet path.
+- NetGraph opens from the top bar, renders connected public route nodes, supports
+  pan/zoom/drag/search, and shows live routed packet comets without exposing raw
+  packet IDs or raw path data.
 - Long Plot Routes and selected packet paths remain visible while zoomed out
   without revealing every idle route.
 - Map Settings layer toggles and packet visual sliders work without unnecessary
@@ -171,7 +174,7 @@ Use overrides when testing a branch, alternate host, expected build, or another
 diagnostic IATA:
 
 ```powershell
-.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.7 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.8 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
 ```
 
 Check privacy before committing:

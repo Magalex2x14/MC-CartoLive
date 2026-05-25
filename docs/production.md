@@ -69,7 +69,7 @@ docker run --rm -p 8080:8080 \
   -e PUBLIC_MODE=true \
   -e PUBLIC_BASE_URL=http://localhost:8080 \
   -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
-  ghcr.io/n30nex/mc-cartolive:2.4.7
+  ghcr.io/n30nex/mc-cartolive:2.4.8
 ```
 
 For production, keep private settings in an env file and mount persistent data:
@@ -79,7 +79,7 @@ docker run -d --name mc-cartolive \
   -p 8080:8080 \
   --env-file .env \
   -v mc-cartolive-data:/app/data \
-  ghcr.io/n30nex/mc-cartolive:2.4.7
+  ghcr.io/n30nex/mc-cartolive:2.4.8
 ```
 
 The published image runs as non-root `appuser`, includes OCI source/version
@@ -132,7 +132,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.4.7 exposes the app version/build in the top project bar. CI builds use
+- Version 2.4.8 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -178,8 +178,9 @@ or observer record.
   regular backups and periodically restart/rebuild during maintenance windows
   if WAL files grow unexpectedly.
 - Route glow, cluster role badges, hover-only ordinary labels, the VCR playback
-  surface, live pulse clock, and the Original/OpenFreeMap map toggle use only sanitized public state,
-  WebSocket events, and public history endpoints.
+  surface, live pulse clock, NetGraph, and the Original/OpenFreeMap map toggle
+  use only sanitized public state, WebSocket events, and public history
+  endpoints.
 - Dark/light mode, palette choice, VCR open state, Packets panel mode, Map
   Settings layer/packet visuals, and panel visibility are
   browser-local UI preferences. They do not require database or API migrations.

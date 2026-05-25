@@ -2,9 +2,23 @@
 
 ## Unreleased
 
+- No unreleased changes.
+
+## 2.4.8 - 2026-05-25
+
+- Added a top-bar `NetGraph` page at `#/netgraph` with a full-screen canvas graph
+  of connected public route-bearing nodes.
+- Built NetGraph from existing sanitized public state and WebSocket events only:
+  no backend schema changes and no new public debug data.
+- Added D3 force layout, graph pan/zoom/drag, search, fit/reset/pause controls,
+  compact node and route inspectors, routed packet comets, and matched observer
+  node glows.
+- Added NetGraph tests for graph construction, live event matching, selection
+  helpers, LinkBar routing, and panel rendering.
 - Cleaned project documentation around the current supported Docker path, removed
   the obsolete separate OpenFreeMap compose stack, and dropped an oversized old
   screenshot collage from tracked docs assets.
+- Updated release metadata/docs for `2.4.8`.
 
 ## 2.4.7 - 2026-05-24
 

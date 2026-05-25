@@ -1,4 +1,5 @@
 @import './styles/packets.css';
+@import './styles/netgraph.css';
 
 :root {
   color-scheme: dark;

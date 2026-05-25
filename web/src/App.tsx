@@ -23,6 +23,7 @@ import VcrBar, { MiniLiveClock } from './components/VcrBar';
 import ChromePanel from './components/ChromePanel';
 import PerfPanel from './components/PerfPanel';
 import PacketsPanel from './components/PacketsPanel';
+import NetGraphPanel from './components/NetGraphPanel';
 import MapSettingsDrawer from './components/MapSettingsDrawer';
 import {
   DEFAULT_CHROME_PANEL_ANCHORS,
@@ -130,6 +131,7 @@ export default function App() {
   const [mapSettings, setMapSettings] = useState<MapSettings>(() => readStoredMapSettings());
   const [perfOpen, setPerfOpen] = useState(() => window.location.hash === '#/perf');
   const [packetsOpen, setPacketsOpen] = useState(() => window.location.hash === '#/packets');
+  const [netGraphOpen, setNetGraphOpen] = useState(() => window.location.hash === '#/netgraph');
   const [packetsPanelMode, setPacketsPanelMode] = useState<'expanded' | 'compactTray'>('expanded');
   const [initialLoadGateOpen, setInitialLoadGateOpen] = useState(true);
   const [shareToast, setShareToast] = useState<string | null>(null);
@@ -169,9 +171,11 @@ export default function App() {
       const hash = window.location.hash;
       const nextPerfOpen = hash === '#/perf';
       const nextPacketsOpen = hash === '#/packets';
+      const nextNetGraphOpen = hash === '#/netgraph';
       setPerfOpen(nextPerfOpen);
       setPacketsOpen(nextPacketsOpen);
-      if (nextPerfOpen || nextPacketsOpen) {
+      setNetGraphOpen(nextNetGraphOpen);
+      if (nextPerfOpen || nextPacketsOpen || nextNetGraphOpen) {
         setPaletteMenuOpen(false);
         setPanelsMenuOpen(false);
         setMapSettingsOpen(false);
@@ -198,6 +202,13 @@ export default function App() {
     setPacketsOpen(false);
     setPacketsPanelMode('expanded');
   }, [packetsPanelMode]);
+
+  const closeNetGraph = useCallback(() => {
+    if (window.location.hash === '#/netgraph') {
+      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    setNetGraphOpen(false);
+  }, []);
 
   useEffect(() => {
     writeStoredMapSettings(mapSettings);
@@ -913,7 +924,7 @@ export default function App() {
         onClearSelection={clearSelection}
       />
       {loadingPositionedNodes && <NodeLoadingToast failed={nodeLoadFailed} drawing={initialNodesReceived} />}
-      <LinkBar perfOpen={perfOpen} packetsOpen={packetsOpen} />
+      <LinkBar perfOpen={perfOpen} packetsOpen={packetsOpen} netGraphOpen={netGraphOpen} />
       {!chromeHidden && (
         <StatusBar
           stats={state.stats}
@@ -1084,8 +1095,18 @@ export default function App() {
           onReplayPacket={replayPacketPath}
         />
       )}
+      {netGraphOpen && (
+        <NetGraphPanel
+          nodes={state.nodes}
+          routes={state.routes}
+          pulses={state.pulses}
+          activity={state.activity}
+          socketStatus={socketStatus}
+          onClose={closeNetGraph}
+        />
+      )}
 
-      {!vcrOpen && packetsPanelMode !== 'compactTray' && (
+      {!vcrOpen && packetsPanelMode !== 'compactTray' && !netGraphOpen && (
         <>
           {!chromeHidden && (
             <div className="bottom-action-dock" aria-label="Map playback and route controls">

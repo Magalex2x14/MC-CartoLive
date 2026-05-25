@@ -35,6 +35,20 @@ function buildTime(): string {
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'react-vendor';
+          if (id.includes('/maplibre-gl/')) return 'maplibre';
+          if (id.includes('/lucide-react/')) return 'icons';
+          return 'vendor';
+        }
+      }
+    }
+  },
   define: {
     __APP_VERSION__: JSON.stringify(packageJSON.version ?? '1.0.0'),
     __BUILD_NUMBER__: JSON.stringify(buildNumber()),

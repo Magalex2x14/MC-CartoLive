@@ -147,6 +147,9 @@ func (s *Server) operationalStatus(ctx context.Context, includeDB bool) map[stri
 		"publicHistoryLatencyMs": runtime.PublicHistoryLastLatencyMs,
 		"publicSummaryRequests":  runtime.PublicSummaryRequests,
 		"publicSummaryErrors":    runtime.PublicSummaryErrors,
+		"publicPacketsRequests":  runtime.PublicPacketsRequests,
+		"publicPacketsErrors":    runtime.PublicPacketsErrors,
+		"publicPacketsLatencyMs": runtime.PublicPacketsLastLatencyMs,
 		"cacheRefreshFailures":   runtime.CacheRefreshFailures,
 		"cached":                 cacheStatus.Ready,
 	}
@@ -351,6 +354,7 @@ const (
 	publicHistoryDefaultLimit    = 1000
 	publicPacketsMaxLimit        = 1000
 	publicPacketsDefaultLimit    = 250
+	publicPacketsMaxRawScan      = 5000
 	publicHistoryTargetBuckets   = 96
 	publicHistoryMaxBuckets      = 288
 	publicHistoryLocationTTL     = 10 * time.Second
@@ -622,7 +626,7 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	failed := true
 	defer func() {
-		s.logAPI("public_packets", time.Since(start), failed)
+		s.recordPublicPackets(time.Since(start), failed)
 	}()
 	if s.Store == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("store is not available"))
@@ -647,23 +651,29 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 	}
 	packets := make([]live.PublicPacketPath, 0, limit)
 	nextCursor := cursor
+	scannedRaw := 0
+	exhausted := false
 	var pathHash3ByNodeID map[string]string
 	locationsReady := false
-	for len(packets) < limit {
-		rawLimit := historyRawPageSize(limit - len(packets))
+	for len(packets) < limit && scannedRaw < publicPacketsMaxRawScan {
+		rawLimit := minInt(historyRawPageSize(limit-len(packets)), publicPacketsMaxRawScan-scannedRaw)
 		rawEvents, err := s.Store.PublicHistoryEvents(ctx, store.HistoryQuery{
-			From:        from,
-			To:          to,
-			Limit:       rawLimit,
-			Cursor:      nextCursor,
-			NewestFirst: true,
+			From:            from,
+			To:              to,
+			Limit:           rawLimit,
+			Cursor:          nextCursor,
+			NewestFirst:     true,
+			IATA:            filters.iata,
+			PayloadTypeName: filters.payload,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		scannedRaw += len(rawEvents)
 		if len(rawEvents) == 0 {
 			nextCursor = nil
+			exhausted = true
 			break
 		}
 		for _, rawEvent := range rawEvents {
@@ -693,14 +703,12 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(rawEvents) < rawLimit || len(packets) >= limit {
+			exhausted = len(rawEvents) < rawLimit && len(packets) < limit
 			break
 		}
 	}
 
-	nextCursorToken := ""
-	if len(packets) >= limit && nextCursor != nil {
-		nextCursorToken = encodeHistoryCursor(*nextCursor)
-	}
+	nextCursorToken := publicPacketsNextCursorToken(nextCursor, exhausted, len(packets), limit, scannedRaw)
 	writeJSON(w, http.StatusOK, live.PublicPacketsResponse{
 		ServerTime: now,
 		Packets:    packets,
@@ -877,6 +885,16 @@ func historyRawPageSize(remaining int) int {
 		limit = 5000
 	}
 	return limit
+}
+
+func publicPacketsNextCursorToken(cursor *store.HistoryCursor, exhausted bool, matched int, limit int, scannedRaw int) string {
+	if cursor == nil || exhausted {
+		return ""
+	}
+	if matched >= limit || scannedRaw >= publicPacketsMaxRawScan {
+		return encodeHistoryCursor(*cursor)
+	}
+	return ""
 }
 
 func defaultHistoryBucketMs(span int64) int64 {
@@ -1086,6 +1104,13 @@ func (s *Server) recordPublicSummary(duration time.Duration, failed bool) {
 	s.logAPI("public_history_summary", duration, failed)
 }
 
+func (s *Server) recordPublicPackets(duration time.Duration, failed bool) {
+	if s.Runtime != nil {
+		s.Runtime.RecordPublicPackets(duration, failed)
+	}
+	s.logAPI("public_packets", duration, failed)
+}
+
 func (s *Server) logAPI(name string, duration time.Duration, failed bool) {
 	if s.Log == nil {
 		return
@@ -1154,6 +1179,13 @@ func trimBounded(value string, maxLen int) string {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

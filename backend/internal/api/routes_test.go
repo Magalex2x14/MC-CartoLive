@@ -1,10 +1,13 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"meshcore-canada-live-map/backend/internal/live"
+	"meshcore-canada-live-map/backend/internal/store"
 )
 
 func TestCanonicalHistorySummaryWindowRoundsDownToStableBuckets(t *testing.T) {
@@ -40,5 +43,27 @@ func TestHistorySummaryCacheReturnsCopiesAndExpires(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	if _, ok := cache.Get(response.From, response.To, response.BucketMs); ok {
 		t.Fatalf("summary cache entry should expire")
+	}
+}
+
+func TestPublicPacketsNextCursorTokenContinuesWhenRawScanIsCapped(t *testing.T) {
+	cursor := &store.HistoryCursor{At: time.Now().UnixMilli(), TypeOrder: 2, ID: 42}
+	token := publicPacketsNextCursorToken(cursor, false, 0, 1000, publicPacketsMaxRawScan)
+	if token == "" {
+		t.Fatalf("expected cursor token when rare filters hit raw scan cap")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		t.Fatalf("decode cursor: %v", err)
+	}
+	var decoded store.HistoryCursor
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal cursor: %v", err)
+	}
+	if decoded != *cursor {
+		t.Fatalf("decoded cursor = %#v, want %#v", decoded, *cursor)
+	}
+	if got := publicPacketsNextCursorToken(cursor, true, 0, 1000, publicPacketsMaxRawScan); got != "" {
+		t.Fatalf("exhausted scan cursor = %q, want empty", got)
 	}
 }

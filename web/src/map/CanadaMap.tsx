@@ -4,8 +4,8 @@ import type { PublicMessageAnchor, PublicNode, PublicObserverBurst, PublicRoute,
 import { routeAssetIcons } from '../assets/routes/assets';
 import { parseSharedView, type MapViewState, type SharedViewState } from '../shareView';
 import { normalizePayloadType, payloadVisual } from '../payloadVisuals';
-import { recordSourceUpdate } from '../perfDiagnostics';
-import { isMappableEndpoint, isMappableNode } from './geo';
+import { isMappableNode } from './geo';
+import { analysisRoutesToGeoJSON } from './analysisRoutes';
 import { shouldAnimateLiveEvent } from './animationSafety';
 import {
   CLUSTER_ACTIVITY_GLOW_MS,
@@ -55,6 +55,8 @@ import {
   routesToGeoJSON,
   type RoutePayloadGlow
 } from './routeSource';
+import { easeOutCubic, fitToNodes, fitToRoute, fitToSegments, followTrafficPadding, isFollowPoint, mapViewFromMap, mapViewportSize } from './mapCamera';
+import { setSourceData, type FeatureCollection } from './sourceDataQueue';
 import { DETAIL_MIN_ZOOM, NODE_CLUSTER_MAX_ZOOM, type MapVisualMode, isClusterZoom, isDetailZoom, visualModeForZoom } from './zoomMode';
 
 export type MapAction =
@@ -94,11 +96,6 @@ interface Props {
   onPlotMapPoint: (point: { lat: number; lng: number }) => void;
   onClearSelection: () => void;
 }
-
-type FeatureCollection = {
-  type: 'FeatureCollection';
-  features: Array<Record<string, unknown>>;
-};
 
 type NodeActivity = {
   hits: number[];
@@ -2223,15 +2220,6 @@ function canUseMapProjection(map: maplibregl.Map): boolean {
   }
 }
 
-function mapViewportSize(map: maplibregl.Map): { width: number; height: number } {
-  const canvas = map.getCanvas();
-  const container = map.getContainer();
-  return {
-    width: canvas.clientWidth || container.clientWidth || window.innerWidth || 1,
-    height: canvas.clientHeight || container.clientHeight || window.innerHeight || 1
-  };
-}
-
 function mercatorPoint(lng: number, lat: number, scale: number): { x: number; y: number } {
   const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
   const sin = Math.sin((clampedLat * Math.PI) / 180);
@@ -2917,129 +2905,6 @@ function analysisRouteSignature(routes: PublicRoute[], selectedRouteID: string |
   return `${selectedRouteID ?? ''}|${matchedRoutes.join(';')}|${segmentSig.join(';')}`;
 }
 
-function analysisRoutesToGeoJSON(
-  routes: PublicRoute[],
-  selectedRouteID: string | null,
-  focus: NodeFocus,
-  analysisSegments: PublicRoutePulse['segments']
-): FeatureCollection {
-  const features: Array<Record<string, unknown>> = [];
-  const routeIDs = new Set<string>([...focus.pathRouteIDs, ...focus.connectedRouteIDs]);
-  if (selectedRouteID) routeIDs.add(selectedRouteID);
-  for (const route of routes) {
-    if (!routeIDs.has(route.id)) continue;
-    const path = focus.pathRouteIDs.has(route.id);
-    const selected = route.id === selectedRouteID;
-    const connected = focus.connectedRouteIDs.has(route.id);
-    const color = selected ? '#f8fafc' : path ? '#facc15' : connected ? '#67e8f9' : routeColors[Math.max(0, Math.min(4, route.frequencyBucket))];
-    features.push(lineFeature(route.id, route.from.lng, route.from.lat, route.to.lng, route.to.lat, {
-      color,
-      opacity: selected ? 0.96 : path ? 0.9 : 0.72,
-      glowOpacity: selected ? 0.34 : path ? 0.28 : 0.18
-    }));
-  }
-  for (const [index, segment] of analysisSegments.entries()) {
-    if (!isMappableEndpoint(segment.from) || !isMappableEndpoint(segment.to)) continue;
-    features.push(lineFeature(`packet-${segment.routeId}-${index}`, segment.from.lng, segment.from.lat, segment.to.lng, segment.to.lat, {
-      color: '#facc15',
-      opacity: 0.94,
-      glowOpacity: 0.32
-    }));
-  }
-  return { type: 'FeatureCollection', features };
-}
-
-function lineFeature(id: string, fromLng: number, fromLat: number, toLng: number, toLat: number, properties: Record<string, unknown>) {
-  return {
-    type: 'Feature',
-    id,
-    properties: { id, ...properties },
-    geometry: {
-      type: 'LineString',
-      coordinates: [
-        [fromLng, fromLat],
-        [toLng, toLat]
-      ]
-    }
-  };
-}
-
-interface SourceUpdateQueue {
-  frame: number;
-  pending: Map<string, FeatureCollection>;
-}
-
-const sourceUpdateQueues = new WeakMap<maplibregl.Map, SourceUpdateQueue>();
-
-function setSourceData(map: maplibregl.Map, sourceID: string, data: FeatureCollection) {
-  let queue = sourceUpdateQueues.get(map);
-  if (!queue) {
-    queue = { frame: 0, pending: new Map() };
-    sourceUpdateQueues.set(map, queue);
-  }
-  queue.pending.set(sourceID, data);
-  if (queue.frame !== 0) return;
-  queue.frame = window.requestAnimationFrame(() => {
-    queue.frame = 0;
-    const pending = [...queue.pending.entries()];
-    queue.pending.clear();
-    for (const [queuedSourceID, queuedData] of pending) {
-      applySourceData(map, queuedSourceID, queuedData);
-    }
-  });
-}
-
-function applySourceData(map: maplibregl.Map, sourceID: string, data: FeatureCollection) {
-  const source = map.getSource(sourceID) as maplibregl.GeoJSONSource | undefined;
-  if (!source) return;
-  source.setData(data as any);
-  recordSourceUpdate(sourceID);
-}
-
-function mapViewFromMap(map: maplibregl.Map): MapViewState {
-  const center = map.getCenter();
-  return { lat: center.lat, lng: center.lng, z: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() };
-}
-
-function fitToNodes(map: maplibregl.Map, nodes: PublicNode[], duration: number) {
-  const points = nodes.filter(isMappableNode).map((node) => [node.longitude, node.latitude] as [number, number]);
-  if (points.length === 0) return;
-  const bounds = points.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(points[0], points[0]));
-  map.fitBounds(bounds, { padding: 76, maxZoom: 5.4, duration });
-}
-
-function fitToRoute(map: maplibregl.Map, route: PublicRoute, duration: number) {
-  const points: Array<[number, number]> = [
-    [route.from.lng, route.from.lat],
-    [route.to.lng, route.to.lat]
-  ];
-  const bounds = points.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(points[0], points[0]));
-  map.fitBounds(bounds, { padding: 120, maxZoom: 10.5, duration });
-}
-
-function fitToSegments(map: maplibregl.Map, segments: PublicRoutePulse['segments'], duration: number, overview = false) {
-  const points = segments.flatMap((segment) => [
-    [segment.from.lng, segment.from.lat] as [number, number],
-    [segment.to.lng, segment.to.lat] as [number, number]
-  ]).filter(isFollowPoint);
-  if (points.length === 0) return;
-  if (points.length === 1) {
-    map.easeTo({ center: points[0], zoom: Math.max(map.getZoom(), 8.2), duration });
-    return;
-  }
-  const bounds = points.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(points[0], points[0]));
-  map.fitBounds(bounds, { padding: overview ? overviewRoutePadding(map) : followTrafficPadding(map), maxZoom: overview ? 8.8 : 10.8, duration, easing: easeOutCubic });
-}
-
-function overviewRoutePadding(map: maplibregl.Map): maplibregl.PaddingOptions {
-  const { width, height } = mapViewportSize(map);
-  const compact = width < 720 || height < 560;
-  if (compact) {
-    return { top: 86, right: 38, bottom: 116, left: 38 };
-  }
-  return { top: 132, right: 132, bottom: 150, left: 132 };
-}
-
 function followTrafficPulse(
   map: maplibregl.Map,
   pulse: PublicRoutePulse,
@@ -3105,29 +2970,6 @@ function routePulsePoints(pulse: PublicRoutePulse): Array<[number, number]> {
     points.push([segment.from.lng, segment.from.lat], [segment.to.lng, segment.to.lat]);
   }
   return points;
-}
-
-function isFollowPoint(point: [number, number]): boolean {
-  const [lng, lat] = point;
-  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 41 && lat <= 84 && lng >= -142 && lng <= -52;
-}
-
-function followTrafficPadding(map: maplibregl.Map): maplibregl.PaddingOptions {
-  const container = map.getContainer();
-  const width = container.clientWidth;
-  if (width <= 760) {
-    return { top: 188, right: 30, bottom: 210, left: 30 };
-  }
-  return {
-    top: 150,
-    right: Math.min(360, Math.round(width * 0.24)),
-    bottom: 84,
-    left: Math.min(360, Math.round(width * 0.24))
-  };
-}
-
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
 }
 
 function addGeneratedNodeIcons(map: maplibregl.Map) {

@@ -19,6 +19,9 @@ describe('PacketsPanel', () => {
     expect(html).toContain('True Path Packets');
     expect(html).toContain('Only packets with real public route segments');
     expect(html).toContain('Search endpoint, region, route prefix, message');
+    expect(html).toContain('Region');
+    expect(html).toContain('Returned path');
+    expect(html).toContain('Other');
     expect(html).not.toContain('hash');
     expect(html).not.toContain('raw');
     expect(html).not.toContain('resolver');

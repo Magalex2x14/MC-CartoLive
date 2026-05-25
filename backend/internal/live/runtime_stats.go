@@ -15,6 +15,9 @@ type RuntimeStats struct {
 	publicSummaryRequests      atomic.Int64
 	publicSummaryErrors        atomic.Int64
 	publicSummaryLastLatencyMs atomic.Int64
+	publicPacketsRequests      atomic.Int64
+	publicPacketsErrors        atomic.Int64
+	publicPacketsLastLatencyMs atomic.Int64
 	cacheRefreshFailures       atomic.Int64
 	cacheRefreshLastLatencyMs  atomic.Int64
 	cacheRefreshLastAtMs       atomic.Int64
@@ -30,6 +33,9 @@ type RuntimeStatsSnapshot struct {
 	PublicSummaryRequests      int64 `json:"publicSummaryRequests"`
 	PublicSummaryErrors        int64 `json:"publicSummaryErrors"`
 	PublicSummaryLastLatencyMs int64 `json:"publicSummaryLastLatencyMs"`
+	PublicPacketsRequests      int64 `json:"publicPacketsRequests"`
+	PublicPacketsErrors        int64 `json:"publicPacketsErrors"`
+	PublicPacketsLastLatencyMs int64 `json:"publicPacketsLastLatencyMs"`
 	CacheRefreshFailures       int64 `json:"cacheRefreshFailures"`
 	CacheRefreshLastLatencyMs  int64 `json:"cacheRefreshLastLatencyMs"`
 	CacheRefreshLastAtMs       int64 `json:"cacheRefreshLastAtMs"`
@@ -72,6 +78,17 @@ func (s *RuntimeStats) RecordPublicSummary(duration time.Duration, failed bool) 
 	s.publicSummaryLastLatencyMs.Store(duration.Milliseconds())
 }
 
+func (s *RuntimeStats) RecordPublicPackets(duration time.Duration, failed bool) {
+	if s == nil {
+		return
+	}
+	s.publicPacketsRequests.Add(1)
+	if failed {
+		s.publicPacketsErrors.Add(1)
+	}
+	s.publicPacketsLastLatencyMs.Store(duration.Milliseconds())
+}
+
 func (s *RuntimeStats) RecordCacheRefresh(duration time.Duration, failed bool) {
 	if s == nil {
 		return
@@ -97,6 +114,9 @@ func (s *RuntimeStats) Snapshot() RuntimeStatsSnapshot {
 		PublicSummaryRequests:      s.publicSummaryRequests.Load(),
 		PublicSummaryErrors:        s.publicSummaryErrors.Load(),
 		PublicSummaryLastLatencyMs: s.publicSummaryLastLatencyMs.Load(),
+		PublicPacketsRequests:      s.publicPacketsRequests.Load(),
+		PublicPacketsErrors:        s.publicPacketsErrors.Load(),
+		PublicPacketsLastLatencyMs: s.publicPacketsLastLatencyMs.Load(),
 		CacheRefreshFailures:       s.cacheRefreshFailures.Load(),
 		CacheRefreshLastLatencyMs:  s.cacheRefreshLastLatencyMs.Load(),
 		CacheRefreshLastAtMs:       s.cacheRefreshLastAtMs.Load(),

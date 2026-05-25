@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.4.7 - 2026-05-24
+
+- Added public-safe `/api/v1/public/packets` runtime counters to health/readiness output and bounded Packets history scanning with cursor continuation for rare filters.
+- Made Packets filters more production-safe with debounced server-backed requests, stale generation guards, fixed payload choices, and explicit uppercase IATA entry.
+- Extracted map camera, source update queue, analysis route, and playback buffering helpers to reduce large-file risk without changing public behavior.
+- Added Vite manual vendor chunks, extended package smoke around public packet paths, and updated release metadata/docs for `2.4.7`.
+
 ## 2.4.6 - 2026-05-24
 
 - Fixed packaging metadata for public release builds by aligning `.env.example`, Docker defaults, frontend package metadata, and backend default version with `2.4.6`.

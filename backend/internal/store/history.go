@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"meshcore-canada-live-map/backend/internal/live"
@@ -39,11 +40,13 @@ func (e HistoryEvent) IATA() string {
 }
 
 type HistoryQuery struct {
-	From        int64
-	To          int64
-	Limit       int
-	Cursor      *HistoryCursor
-	NewestFirst bool
+	From            int64
+	To              int64
+	Limit           int
+	Cursor          *HistoryCursor
+	NewestFirst     bool
+	IATA            string
+	PayloadTypeName string
 }
 
 type HistorySummaryRow struct {
@@ -77,6 +80,14 @@ func (s *Store) PublicHistoryEvents(ctx context.Context, query HistoryQuery) ([]
   LEFT JOIN packet_observations po ON po.id=e.observation_id
   WHERE e.heard_at_ms >= ? AND e.heard_at_ms <= ?`
 	args := []any{query.From, to}
+	if iata := strings.ToUpper(strings.TrimSpace(query.IATA)); iata != "" {
+		sqlText += ` AND UPPER(COALESCE(po.iata, '')) = ?`
+		args = append(args, iata)
+	}
+	if payload := strings.ToUpper(strings.TrimSpace(query.PayloadTypeName)); payload != "" {
+		sqlText += ` AND UPPER(COALESCE(e.payload_type_name, '')) = ?`
+		args = append(args, payload)
+	}
 	if query.Cursor != nil {
 		if query.NewestFirst {
 			sqlText += ` AND (e.heard_at_ms < ? OR (e.heard_at_ms = ? AND e.id < ?))`

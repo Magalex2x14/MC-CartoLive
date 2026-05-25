@@ -63,6 +63,7 @@ import {
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
 import { recordLivePendingQueueSize, recordVcrReplayQueueSize, recordVisibilityPause } from './perfDiagnostics';
+import { appendBufferedRoutePulses, routePulseMessages } from './playbackController';
 import { readStoredMapSettings, writeStoredMapSettings, type MapSettings } from './mapSettings';
 import {
   THEME_PALETTES,
@@ -215,8 +216,9 @@ export default function App() {
   }, []);
 
   const bufferVcrMessage = useCallback((message: PublicLiveEnvelope) => {
-    if (message.type !== 'event' || message.event !== 'routePulse') return;
-    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, message]).slice(-VCR_MAX_BUFFERED_COMETS);
+    const next = appendBufferedRoutePulses(vcrBufferedMessagesRef.current, message, VCR_MAX_BUFFERED_COMETS);
+    if (next === vcrBufferedMessagesRef.current) return;
+    vcrBufferedMessagesRef.current = next;
     recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
     setVcr((current) => ({
       ...current,
@@ -228,8 +230,13 @@ export default function App() {
   const movePendingLiveToVcrBuffer = useCallback(() => {
     clearPendingLiveFlush();
     if (pendingMessagesRef.current.length === 0) return;
-    const routedPending = pendingMessagesRef.current.filter((message) => message.type === 'event' && message.event === 'routePulse');
-    vcrBufferedMessagesRef.current = sortLiveEnvelopes([...vcrBufferedMessagesRef.current, ...routedPending]).slice(-VCR_MAX_BUFFERED_COMETS);
+    const routedPending = routePulseMessages(pendingMessagesRef.current);
+    if (routedPending.length === 0) {
+      pendingMessagesRef.current = [];
+      recordLivePendingQueueSize(0);
+      return;
+    }
+    vcrBufferedMessagesRef.current = appendBufferedRoutePulses(vcrBufferedMessagesRef.current, routedPending, VCR_MAX_BUFFERED_COMETS);
     recordVcrReplayQueueSize(vcrBufferedMessagesRef.current.length);
     pendingMessagesRef.current = [];
     recordLivePendingQueueSize(0);

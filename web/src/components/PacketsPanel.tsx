@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { Clock3, Copy, Filter, MessageSquareText, Play, RefreshCw, Route, Search, X } from 'lucide-react';
 import { fetchPublicPackets } from '../api';
 import { DEFAULT_PACKET_FILTERS, packetEndpointSummary, PACKETS_SCOPE_OPTIONS, packetWindowForScope, type PacketFilters } from '../packets';
-import { payloadVisual } from '../payloadVisuals';
+import { payloadLegendVisuals, payloadVisual } from '../payloadVisuals';
 import type { PublicHistoryWindow, PublicPacketPath } from '../types';
 
 export type PacketsPanelMode = 'expanded' | 'compactTray';
@@ -21,6 +21,7 @@ interface PacketsPanelProps {
 const PACKETS_PAGE_LIMIT = 500;
 const PACKET_ROW_HEIGHT = 112;
 const PACKET_LIST_OVERSCAN = 5;
+const PACKET_FILTER_DEBOUNCE_MS = 250;
 
 export default function PacketsPanel({
   mode,
@@ -46,6 +47,8 @@ export default function PacketsPanel({
   const [copyStatus, setCopyStatus] = useState('');
   const mountedRef = useRef(true);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const requestGenerationRef = useRef(0);
+  const debouncedFilters = useDebouncedValue(filters, PACKET_FILTER_DEBOUNCE_MS);
   const selectedFromList = useMemo(() => packets.find((packet) => packet.id === selectedPacketID) ?? null, [packets, selectedPacketID]);
   const activePacket = selectedPacket ?? selectedFromList;
 
@@ -57,12 +60,14 @@ export default function PacketsPanel({
 
   const refresh = useCallback(() => {
     let active = true;
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
     setLoading(true);
     setError(null);
     const window = packetWindowForScope(Date.now(), scopeMs);
-    fetchPublicPackets({ ...window, limit: PACKETS_PAGE_LIMIT, ...filtersToParams(filters) })
+    fetchPublicPackets({ ...window, limit: PACKETS_PAGE_LIMIT, ...filtersToParams(debouncedFilters) })
       .then((response) => {
-        if (!active || !mountedRef.current) return;
+        if (!active || !mountedRef.current || generation !== requestGenerationRef.current) return;
         setPackets(dedupePackets(response.packets));
         setWindowInfo(response.window);
         setNextCursor(response.nextCursor ?? '');
@@ -71,35 +76,36 @@ export default function PacketsPanel({
         if (listRef.current) listRef.current.scrollTop = 0;
       })
       .catch((err: unknown) => {
-        if (!active || !mountedRef.current) return;
+        if (!active || !mountedRef.current || generation !== requestGenerationRef.current) return;
         setError(err instanceof Error ? err.message : 'Unable to load packet paths');
       })
       .finally(() => {
-        if (active && mountedRef.current) setLoading(false);
+        if (active && mountedRef.current && generation === requestGenerationRef.current) setLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [filters, scopeMs]);
+  }, [debouncedFilters, scopeMs]);
 
   const loadOlder = useCallback(() => {
     if (!windowInfo || !nextCursor || loadingMore) return;
+    const generation = requestGenerationRef.current;
     setLoadingMore(true);
     setError(null);
-    fetchPublicPackets({ from: windowInfo.from, to: windowInfo.to, limit: PACKETS_PAGE_LIMIT, cursor: nextCursor, ...filtersToParams(filters) })
+    fetchPublicPackets({ from: windowInfo.from, to: windowInfo.to, limit: PACKETS_PAGE_LIMIT, cursor: nextCursor, ...filtersToParams(debouncedFilters) })
       .then((response) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || generation !== requestGenerationRef.current) return;
         setPackets((current) => dedupePackets([...current, ...response.packets]));
         setNextCursor(response.nextCursor ?? '');
         setWindowInfo(response.window);
       })
       .catch((err: unknown) => {
-        if (mountedRef.current) setError(err instanceof Error ? err.message : 'Unable to load older packet paths');
+        if (mountedRef.current && generation === requestGenerationRef.current) setError(err instanceof Error ? err.message : 'Unable to load older packet paths');
       })
       .finally(() => {
-        if (mountedRef.current) setLoadingMore(false);
+        if (mountedRef.current && generation === requestGenerationRef.current) setLoadingMore(false);
       });
-  }, [filters, loadingMore, nextCursor, windowInfo]);
+  }, [debouncedFilters, loadingMore, nextCursor, windowInfo]);
 
   useEffect(() => {
     const cancelRefresh = refresh();
@@ -126,8 +132,7 @@ export default function PacketsPanel({
     return () => window.clearTimeout(timer);
   }, [copyStatus]);
 
-  const payloadOptions = useMemo(() => uniqueSorted(packets.map((packet) => packet.payloadTypeName)), [packets]);
-  const iataOptions = useMemo(() => uniqueSorted(packets.map((packet) => packet.iata ?? '').filter(Boolean)), [packets]);
+  const payloadOptions = useMemo(() => payloadLegendVisuals(), []);
   const virtualRows = useMemo(() => virtualPacketRows(packets, scrollTop, listHeight), [listHeight, packets, scrollTop]);
 
   const copyRouteIDs = useCallback(async (packet: PublicPacketPath) => {
@@ -206,13 +211,19 @@ export default function PacketsPanel({
             </button>
           )}
         </label>
-        <select value={filters.iata} onChange={(event) => setFilters((current) => ({ ...current, iata: event.target.value }))} aria-label="Filter packet region">
-          <option value="">All regions</option>
-          {iataOptions.map((iata) => <option key={iata} value={iata}>{iata}</option>)}
-        </select>
+        <label className="packets-iata-filter">
+          <span>Region</span>
+          <input
+            value={filters.iata}
+            maxLength={8}
+            onChange={(event) => setFilters((current) => ({ ...current, iata: normalizeIataFilter(event.target.value) }))}
+            placeholder="Any"
+            aria-label="Filter packet region"
+          />
+        </label>
         <select value={filters.payload} onChange={(event) => setFilters((current) => ({ ...current, payload: event.target.value }))} aria-label="Filter packet payload">
           <option value="">All payloads</option>
-          {payloadOptions.map((payload) => <option key={payload} value={payload}>{payloadVisual(payload).label}</option>)}
+          {payloadOptions.map((payload) => <option key={payload.className} value={payload.shortLabel === 'OTH' ? 'OTHER' : payload.label.toUpperCase().replace(/\s+/g, '_')}>{payload.label}</option>)}
         </select>
         <select value={filters.minHops} onChange={(event) => setFilters((current) => ({ ...current, minHops: Number(event.target.value) || 0 }))} aria-label="Filter minimum hops">
           <option value={0}>Any hops</option>
@@ -402,8 +413,8 @@ function dedupePackets(items: PublicPacketPath[]): PublicPacketPath[] {
   return out;
 }
 
-function uniqueSorted(items: string[]): string[] {
-  return [...new Set(items.map((item) => item.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+function normalizeIataFilter(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 }
 
 function filtersToParams(filters: PacketFilters) {
@@ -420,6 +431,15 @@ function virtualPacketRows(packets: PublicPacketPath[], scrollTop: number, heigh
   const start = Math.max(0, Math.floor(scrollTop / PACKET_ROW_HEIGHT) - PACKET_LIST_OVERSCAN);
   const end = Math.min(packets.length, Math.ceil((scrollTop + height) / PACKET_ROW_HEIGHT) + PACKET_LIST_OVERSCAN);
   return { offset: start * PACKET_ROW_HEIGHT, items: packets.slice(start, end) };
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [delayMs, value]);
+  return debounced;
 }
 
 function formatWindow(window: PublicHistoryWindow | null): string {

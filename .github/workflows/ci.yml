@@ -72,7 +72,7 @@ jobs:
           provenance: false
           tags: meshcore-canada-live-map:ci
           build-args: |
-            APP_VERSION=2.4.6
+            APP_VERSION=2.4.7
 
       - name: Smoke built image
         run: |
@@ -94,8 +94,16 @@ jobs:
             fi
             sleep 1
           done
-          grep -q '"version":"2.4.6"' /tmp/mc-health.json
+          grep -q '"version":"2.4.7"' /tmp/mc-health.json
           docker exec mc-cartolive-ci test -s /app/examples/fixtures/synthetic-live.ndjson
+          for i in $(seq 1 30); do
+            curl -fsS 'http://127.0.0.1:18080/api/v1/public/packets?limit=25' >/tmp/mc-packets.json
+            if python3 -c 'import json,sys; sys.exit(0 if len(json.load(open("/tmp/mc-packets.json")).get("packets", [])) > 0 else 1)'; then
+              break
+            fi
+            sleep 1
+          done
+          python3 -c 'import json,sys; data=json.load(open("/tmp/mc-packets.json")); assert len(data.get("packets", [])) > 0, data'
 
   secret-scan:
     name: Secret scan

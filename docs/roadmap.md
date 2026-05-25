@@ -33,7 +33,7 @@ missing-data investigations should be easy to run from the production host.
   stale observers, and label-vs-actual-IATA mismatches.
 - Keep raw keys, packet hashes, raw hex, resolver debug details, and local
   config out of reports.
-- Use snapshots to answer “why is this missing?” before changing map logic.
+- Use snapshots to answer "why is this missing?" before changing map logic.
 
 ## 2.3.4 - Backup And Restore Rehearsal
 
@@ -121,6 +121,17 @@ missing-data investigations should be easy to run from the production host.
 - Verify backend tests, frontend tests/build, Docker build, live smoke,
   `/api/v1/public/packets`, VCR replay, WebSocket, desktop browser, and mobile
   browser checks before tagging.
+
+## 2.4.7 - Large Bug Fix And Cleanup PR
+
+- Keep the 2.4 feature set frozen while hardening Packets endpoint pressure,
+  runtime counters, packaged-image smoke checks, and frontend request safety.
+- Reduce stale Packets UI requests with debounced server-backed filters, fixed
+  payload filter choices, explicit IATA entry, and stale-generation guards.
+- Split high-risk frontend helpers around map camera, source updates, analysis
+  route rendering, and playback buffering without changing public behavior.
+- Add Vite vendor chunks so production builds avoid the large single-bundle
+  warning, then verify tests, build, Docker, GHCR/package smoke, and live smoke.
 
 ## Non-Goals
 

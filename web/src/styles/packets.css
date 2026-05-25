@@ -1,0 +1,26 @@
+.packets-iata-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 96px;
+  padding: 0 9px;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.packets-iata-filter span {
+  color: var(--mc-text-muted, #9fb1c9);
+}
+
+.packets-iata-filter input {
+  width: 44px;
+  min-width: 0;
+  color: var(--mc-text, #f8fafc);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}

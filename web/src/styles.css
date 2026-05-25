@@ -3760,12 +3760,16 @@ button {
   }
 
   .maplibregl-ctrl-bottom-right {
+    position: fixed;
     right: 10px;
     bottom: calc(var(--vcr-bar-height, 0px) + 12px + env(safe-area-inset-bottom, 0px));
   }
 
   .link-bar {
+    position: fixed;
     top: 8px;
+    left: 8px;
+    right: 8px;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px;
     min-height: 34px;
@@ -3883,9 +3887,10 @@ button {
   }
 
   .top-actions {
+    position: fixed;
     top: 48px;
     bottom: auto;
-    left: auto;
+    left: 8px;
     right: 8px;
     max-width: calc(100vw - 16px);
     justify-content: flex-end;
@@ -4093,11 +4098,22 @@ button {
   }
 
   .vcr-mini-clock {
-    right: 8px;
+    position: fixed;
+    left: 50%;
+    right: auto;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    max-width: calc(100vw - 16px);
+    min-width: 136px;
+    justify-content: center;
     min-height: 34px;
     padding: 0 9px;
     font-size: 10px;
+  }
+
+  .vcr-mini-clock:hover,
+  .vcr-mini-clock:focus-visible {
+    transform: translateX(-50%) translateY(-1px);
   }
 
   .plot-routes-panel {

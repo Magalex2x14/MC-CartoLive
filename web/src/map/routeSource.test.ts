@@ -78,6 +78,21 @@ describe('route source helpers', () => {
     expect(data.features[1].properties).toMatchObject({ id: 'c-d', connected: false, dimmed: true });
   });
 
+  it('renders route geometry as densified arc coordinates', () => {
+    const data = routesToGeoJSON([{
+      ...route('long', 'a', 'b'),
+      from: endpoint('a', 43.65, -79.38),
+      to: endpoint('b', 49.28, -123.12),
+      distanceKm: 3350
+    }], null, focus());
+    const geometry = data.features[0].geometry as { type: string; coordinates: Array<[number, number]> };
+
+    expect(geometry.type).toBe('LineString');
+    expect(geometry.coordinates.length).toBeGreaterThan(2);
+    expect(geometry.coordinates[0]).toEqual([-79.38, 43.65]);
+    expect(geometry.coordinates[geometry.coordinates.length - 1]).toEqual([-123.12, 49.28]);
+  });
+
   it('builds payload glow GeoJSON only for active route glows', () => {
     const now = 1000;
     const glows = new Map<string, RoutePayloadGlow>([

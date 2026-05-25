@@ -5,7 +5,7 @@ in `CHANGELOG.md`; operator procedures belong in `docs/operator-runbook.md`.
 
 ## Current Baseline
 
-Version `2.4.8` is the current production baseline.
+Version `2.4.9` is the current production baseline.
 
 - Public map behavior is feature-frozen for the 2.4 line.
 - Public packet/path data remains sanitized and schema-compatible.
@@ -22,6 +22,8 @@ Version `2.4.8` is the current production baseline.
   filters or large 24h windows.
 - Keep NetGraph frontend-only, smooth, and privacy-safe while it renders live
   connected public routes from existing state and WebSocket events.
+- Keep OpenFreeMap 3D frontend-only, smooth, and optional: the true 3D layer is
+  a visual overlay over the existing 2D map sources, not a new public data API.
 - Keep map rendering smooth on modest clients by avoiding unnecessary source
   rebuilds, duplicate replay schedulers, and hidden-tab animation work.
 - Keep production deployment repeatable through release, smoke, soak, and

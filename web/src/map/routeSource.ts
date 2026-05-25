@@ -1,6 +1,7 @@
 import type { PublicRoute } from '../types';
 import { isMappableEndpoint } from './geo';
 import type { NodeFocus } from './nodeFocus';
+import { routeArcCoordinates } from './routeArcs';
 
 export const routeColors = ['#2563eb', '#06b6d4', '#22c55e', '#f97316', '#ef4444'];
 export const ROUTE_FRESH_MS = 15 * 60_000;
@@ -48,10 +49,7 @@ export function routesToGeoJSON(
           },
           geometry: {
             type: 'LineString',
-            coordinates: [
-              [route.from.lng, route.from.lat],
-              [route.to.lng, route.to.lat]
-            ]
+            coordinates: routeArcCoordinates(route.from, route.to, { distanceKm: route.distanceKm })
           }
         };
       })
@@ -115,10 +113,7 @@ export function routePayloadGlowsToGeoJSON(
       },
       geometry: {
         type: 'LineString',
-        coordinates: [
-          [route.from.lng, route.from.lat],
-          [route.to.lng, route.to.lat]
-        ]
+        coordinates: routeArcCoordinates(route.from, route.to, { distanceKm: route.distanceKm })
       }
     });
   }

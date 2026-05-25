@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Gauge, Github, List, Network } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { BookOpen, ExternalLink, Gauge, Github, HelpCircle, History, List, Network, Sparkles, X } from 'lucide-react';
 import { appVersion, buildNumber, buildTime, gitSha, releaseURL } from '../buildInfo';
 import {
   GITHUB_REPO_API_URL,
@@ -15,6 +15,34 @@ import {
 
 const MESHCORE_CANADA_URL = 'https://meshcore.ca/';
 const MESHCORE_CANADA_LOGO = '/meshcore-canada-favicon.png';
+const GUIDE_DISMISS_KEY = 'mc-cartolive-welcome-guide-dismissed-2.4.9';
+
+type InfoPanel = 'changelog' | 'features' | 'guide' | null;
+
+const LATEST_CHANGELOG = [
+  'OpenFreeMap 3D now renders procedural node models, elevated route arcs, 3D packet comets, terrain, and tuned buildings.',
+  'NetGraph adds a closeable live node graph with routed packet comets, observer glows, search, fit/reset, and inspectors.',
+  'Packets is now a true-path packet browser with replay, focus, filters, public segment details, and server-backed paging.',
+  'Map Settings adds layer toggles plus comet speed, brightness, trail length, and animation style controls.',
+  'Perf, health/readiness, live smoke checks, and production docs were expanded for public deployment confidence.'
+];
+
+const FEATURE_LIST = [
+  'Live public MeshCore map with route comets, observer bursts, message bubbles, and clustered overview.',
+  'OpenFreeMap 3D mode with low-poly repeaters, companions, rooms, observer beacons, route arcs, and 3D comets.',
+  'True-path Packets page for sanitized 24h packet browsing and cinematic route replay.',
+  'NetGraph view for connected public RF topology with live pulses and compact node/pathway inspectors.',
+  'Hidden-by-default VCR for pause, scrub, replay, and 24h public-safe route history.',
+  'Plot Routes, reachable-node phonebook, layer controls, themes, palettes, Perf Lab, and operator diagnostics.'
+];
+
+const GUIDE_STEPS = [
+  'Use the layer button to switch between the original flat map and OpenFreeMap 3D.',
+  'Open Packets to inspect only real public paths, then Replay to pause live and animate one packet route.',
+  'Open NetGraph to see the connected public network as a live node graph.',
+  'Use Map Settings for layers, 3D toggles, comet speed, brightness, trails, and animation style.',
+  'Use Plot Routes and Select two for path analysis, or the VCR to replay public route history.'
+];
 
 interface LinkBarProps {
   perfOpen?: boolean;
@@ -25,6 +53,9 @@ interface LinkBarProps {
 export default function LinkBar({ perfOpen = false, packetsOpen = false, netGraphOpen = false }: LinkBarProps) {
   const [now, setNow] = useState(() => Date.now());
   const [repoStats, setRepoStats] = useState<RepoStats | null>(() => readCachedRepoStats(browserStorage()));
+  const [activeInfoPanel, setActiveInfoPanel] = useState<InfoPanel>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [hideWelcomeAgain, setHideWelcomeAgain] = useState(true);
   const buildAge = useMemo(() => formatBuildAge(buildTime, now), [now]);
   const buildID = shortBuildID(buildNumber, gitSha);
   const commitURL = commitURLForSha(gitSha || buildNumber);
@@ -33,6 +64,13 @@ export default function LinkBar({ perfOpen = false, packetsOpen = false, netGrap
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const storage = browserStorage();
+    if (storage?.getItem(GUIDE_DISMISS_KEY) !== '1') {
+      setWelcomeOpen(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -57,6 +95,13 @@ export default function LinkBar({ perfOpen = false, packetsOpen = false, netGrap
       active = false;
     };
   }, []);
+
+  const dismissWelcomeGuide = () => {
+    if (hideWelcomeAgain) {
+      browserStorage()?.setItem(GUIDE_DISMISS_KEY, '1');
+    }
+    setWelcomeOpen(false);
+  };
 
   return (
     <nav className="link-bar" aria-label="Project links">
@@ -86,12 +131,152 @@ export default function LinkBar({ perfOpen = false, packetsOpen = false, netGrap
           <span>NetGraph</span>
         </a>
       </div>
-      <a className="link-bar-github" href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" title="Open MC-CartoLive on GitHub">
-        <Github size={15} />
-        <span>{repoStats ? `${repoStats.stars.toLocaleString()} stars / ${repoStats.forks.toLocaleString()} forks` : 'GitHub'}</span>
-        <ExternalLink size={12} />
-      </a>
+      <div className="link-bar-right">
+        <div className="link-bar-info-actions" aria-label="Project information">
+          <button
+            className={activeInfoPanel === 'changelog' ? 'active' : ''}
+            type="button"
+            aria-pressed={activeInfoPanel === 'changelog'}
+            title="Latest changelog"
+            onClick={() => setActiveInfoPanel((panel) => panel === 'changelog' ? null : 'changelog')}
+          >
+            <History size={13} />
+            <span>Changelog</span>
+          </button>
+          <button
+            className={activeInfoPanel === 'features' ? 'active' : ''}
+            type="button"
+            aria-pressed={activeInfoPanel === 'features'}
+            title="Feature list"
+            onClick={() => setActiveInfoPanel((panel) => panel === 'features' ? null : 'features')}
+          >
+            <Sparkles size={13} />
+            <span>Features</span>
+          </button>
+          <button
+            className={activeInfoPanel === 'guide' ? 'active' : ''}
+            type="button"
+            aria-pressed={activeInfoPanel === 'guide'}
+            title="Open guide"
+            onClick={() => setActiveInfoPanel('guide')}
+          >
+            <HelpCircle size={13} />
+            <span>Guide</span>
+          </button>
+        </div>
+        <a className="link-bar-github" href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" title="Open MC-CartoLive on GitHub">
+          <Github size={15} />
+          <span>{repoStats ? `${repoStats.stars.toLocaleString()} stars / ${repoStats.forks.toLocaleString()} forks` : 'GitHub'}</span>
+          <ExternalLink size={12} />
+        </a>
+      </div>
+      {activeInfoPanel === 'changelog' && (
+        <InfoPopover title="Latest Changelog" icon={<History size={14} />} onClose={() => setActiveInfoPanel(null)}>
+          <p>MC-CartoLive v{appVersion} is focused on the new OpenFreeMap 3D live network view and the production tooling around the 2.4 line.</p>
+          <ul>
+            {LATEST_CHANGELOG.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+          <a href={releaseURL} target="_blank" rel="noreferrer">Open full release notes</a>
+        </InfoPopover>
+      )}
+      {activeInfoPanel === 'features' && (
+        <InfoPopover title="Feature List" icon={<Sparkles size={14} />} onClose={() => setActiveInfoPanel(null)}>
+          <ul>
+            {FEATURE_LIST.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </InfoPopover>
+      )}
+      {activeInfoPanel === 'guide' && (
+        <GuideOverlay title="MC-CartoLive Guide" onClose={() => setActiveInfoPanel(null)} />
+      )}
+      {welcomeOpen && (
+        <section className="welcome-guide-popover" role="dialog" aria-modal="false" aria-label="Welcome to MC-CartoLive">
+          <button type="button" className="welcome-guide-close" title="Close welcome guide" onClick={() => setWelcomeOpen(false)}>
+            <X size={15} />
+          </button>
+          <span className="panel-eyebrow">Welcome</span>
+          <h2>MC-CartoLive v{appVersion}</h2>
+          <p>Watch the public MeshCore network move live: flat map, OpenFreeMap 3D, true-path Packets, NetGraph, VCR replay, themes, and production-safe diagnostics.</p>
+          <ul>
+            {GUIDE_STEPS.slice(0, 3).map((item) => <li key={item}>{item}</li>)}
+          </ul>
+          <label className="welcome-guide-check">
+            <input type="checkbox" checked={hideWelcomeAgain} onChange={(event) => setHideWelcomeAgain(event.currentTarget.checked)} />
+            <span>Do not show this on next visit</span>
+          </label>
+          <div className="welcome-guide-actions">
+            <button type="button" onClick={() => setActiveInfoPanel('guide')}>Full guide</button>
+            <button type="button" className="primary" onClick={dismissWelcomeGuide}>Start watching</button>
+          </div>
+        </section>
+      )}
     </nav>
+  );
+}
+
+function InfoPopover({ title, icon, children, onClose }: { title: string; icon: ReactNode; children: ReactNode; onClose: () => void }) {
+  return (
+    <section className="link-bar-info-popover" role="dialog" aria-label={title}>
+      <header>
+        <span>{icon}</span>
+        <strong>{title}</strong>
+        <button type="button" title={`Close ${title}`} onClick={onClose}>
+          <X size={14} />
+        </button>
+      </header>
+      <div className="link-bar-info-body">{children}</div>
+    </section>
+  );
+}
+
+function GuideOverlay({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <section className="guide-overlay" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="guide-card">
+        <header>
+          <div>
+            <span className="panel-eyebrow">Guide</span>
+            <h2>{title}</h2>
+          </div>
+          <button type="button" title="Close guide" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </header>
+        <div className="guide-grid">
+          <GuideSection title="Map Views" items={[
+            'Original flat mode keeps the fast dark/light map and 2D route layer.',
+            'OpenFreeMap 3D adds terrain, buildings, low-poly nodes, route arcs, and 3D packet comets.',
+            'Map Settings can turn layers and 3D effects on or off without changing public data.'
+          ]} />
+          <GuideSection title="Traffic Tools" items={[
+            'Live packet comets show only resolved public paths.',
+            'Packets lists true path packets, filters across the selected window, and replays one route at a watchable speed.',
+            'VCR can pause, scrub, and replay public route history without exposing private packet details.'
+          ]} />
+          <GuideSection title="Analysis" items={[
+            'Plot Routes and Select two compare known public pathways between nodes.',
+            'Phonebook shows reachable public nodes from a selected repeater or room.',
+            'NetGraph renders the connected RF topology with live pulses and node/path inspectors.'
+          ]} />
+          <GuideSection title="Operations" items={[
+            'Perf shows public-safe runtime health, queues, frame timing, and backend readiness.',
+            'Health/readiness and smoke scripts help operators confirm live deployments.',
+            'Public APIs stay sanitized: no raw hashes, full public keys, broker secrets, or resolver debug data.'
+          ]} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GuideSection({ title, items }: { title: string; items: string[] }) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      <ul>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </section>
   );
 }
 

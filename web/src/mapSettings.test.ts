@@ -21,10 +21,31 @@ describe('map settings', () => {
     expect(settings.layers.nodes).toBe(false);
     expect(settings.layers.routes).toBe(true);
     expect(settings.layers.liveComets).toBe(false);
+    expect(settings.layers.nodeModels3D).toBe(true);
+    expect(settings.layers.routeArcs3D).toBe(true);
+    expect(settings.layers.packetComets3D).toBe(true);
+    expect(settings.layers.buildingExtrusions).toBe(true);
     expect(settings.packets.speed).toBe(3);
     expect(settings.packets.brightness).toBe(0.4);
     expect(settings.packets.trail).toBe(2);
     expect(settings.packets.animationStyle).toBe('pulse');
+  });
+
+  it('normalizes persisted OpenFreeMap 3D layer toggles', () => {
+    const settings = normalizeMapSettings({
+      layers: {
+        nodeModels3D: false,
+        routeArcs3D: false,
+        packetComets3D: false,
+        buildingExtrusions: false
+      }
+    });
+
+    expect(settings.layers.nodeModels3D).toBe(false);
+    expect(settings.layers.routeArcs3D).toBe(false);
+    expect(settings.layers.packetComets3D).toBe(false);
+    expect(settings.layers.buildingExtrusions).toBe(false);
+    expect(settings.layers.liveComets).toBe(true);
   });
 
   it('falls back to safe defaults for invalid stored settings', () => {

@@ -22,7 +22,11 @@ const LAYER_CONTROLS: readonly { key: keyof MapLayerSettings; label: string; hin
   { key: 'liveComets', label: 'Live packet comets', hint: 'Live packet flight animations only' },
   { key: 'packetResidue', label: 'Packet trails', hint: 'Recent route glow residue' },
   { key: 'observerBursts', label: 'Observer bursts', hint: 'Observer-only packet pings' },
-  { key: 'messageBubbles', label: 'Message bubbles', hint: 'Public-safe decoded text overlays' }
+  { key: 'messageBubbles', label: 'Message bubbles', hint: 'Public-safe decoded text overlays' },
+  { key: 'nodeModels3D', label: '3D node models', hint: 'OpenFreeMap repeater, companion, room, and observer models' },
+  { key: 'routeArcs3D', label: '3D route arcs', hint: 'Elevated OpenFreeMap route/pathway arcs' },
+  { key: 'packetComets3D', label: '3D packet comets', hint: 'OpenFreeMap mesh comets and trails' },
+  { key: 'buildingExtrusions', label: '3D buildings', hint: 'OpenFreeMap building extrusion layer' }
 ];
 
 const ANIMATION_STYLES: readonly { value: PacketAnimationStyle; label: string }[] = [

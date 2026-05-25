@@ -12,6 +12,9 @@ Open `http://localhost:39476`.
 The default public dashboard uses the MapLibre/CARTO dark map on this same
 port. Use the in-app map base toggle to switch to OpenFreeMap 3D without
 starting a second service.
+OpenFreeMap 3D is frontend-only: Three.js is lazy-loaded for the custom 3D
+layer, and the existing 2D MapLibre sources still handle labels, hit testing,
+selection, and fallback rendering.
 
 The public example starts in fixture mode. To use live MQTT, edit `.env`, set
 `MQTT_ENABLED=true`, clear `FIXTURE_REPLAY_PATH`, and add private MQTT
@@ -174,7 +177,7 @@ Use overrides when testing a branch, alternate host, expected build, or another
 diagnostic IATA:
 
 ```powershell
-.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.8 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.9 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
 ```
 
 Check privacy before committing:

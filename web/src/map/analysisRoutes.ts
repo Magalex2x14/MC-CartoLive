@@ -1,6 +1,7 @@
 import type { PublicRoute, PublicRoutePulse } from '../types';
 import { isMappableEndpoint } from './geo';
 import type { NodeFocus } from './nodeFocus';
+import { routeArcCoordinates } from './routeArcs';
 import { routeColors } from './routeSource';
 import type { FeatureCollection } from './sourceDataQueue';
 
@@ -19,7 +20,7 @@ export function analysisRoutesToGeoJSON(
     const selected = route.id === selectedRouteID;
     const connected = focus.connectedRouteIDs.has(route.id);
     const color = selected ? '#f8fafc' : path ? '#facc15' : connected ? '#67e8f9' : routeColors[Math.max(0, Math.min(4, route.frequencyBucket))];
-    features.push(lineFeature(route.id, route.from.lng, route.from.lat, route.to.lng, route.to.lat, {
+    features.push(lineFeature(route.id, routeArcCoordinates(route.from, route.to, { distanceKm: route.distanceKm }), {
       color,
       opacity: selected ? 0.96 : path ? 0.9 : 0.72,
       glowOpacity: selected ? 0.34 : path ? 0.28 : 0.18
@@ -27,7 +28,7 @@ export function analysisRoutesToGeoJSON(
   }
   for (const [index, segment] of analysisSegments.entries()) {
     if (!isMappableEndpoint(segment.from) || !isMappableEndpoint(segment.to)) continue;
-    features.push(lineFeature(`packet-${segment.routeId}-${index}`, segment.from.lng, segment.from.lat, segment.to.lng, segment.to.lat, {
+    features.push(lineFeature(`packet-${segment.routeId}-${index}`, routeArcCoordinates(segment.from, segment.to, { distanceKm: segment.distanceKm }), {
       color: '#facc15',
       opacity: 0.94,
       glowOpacity: 0.32
@@ -36,17 +37,14 @@ export function analysisRoutesToGeoJSON(
   return { type: 'FeatureCollection', features };
 }
 
-function lineFeature(id: string, fromLng: number, fromLat: number, toLng: number, toLat: number, properties: Record<string, unknown>) {
+function lineFeature(id: string, coordinates: Array<[number, number]>, properties: Record<string, unknown>) {
   return {
     type: 'Feature',
     id,
     properties: { id, ...properties },
     geometry: {
       type: 'LineString',
-      coordinates: [
-        [fromLng, fromLat],
-        [toLng, toLat]
-      ]
+      coordinates
     }
   };
 }

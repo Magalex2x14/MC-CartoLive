@@ -10,6 +10,10 @@ export interface MapLayerSettings {
   packetResidue: boolean;
   observerBursts: boolean;
   messageBubbles: boolean;
+  nodeModels3D: boolean;
+  routeArcs3D: boolean;
+  packetComets3D: boolean;
+  buildingExtrusions: boolean;
 }
 
 export interface PacketVisualSettings {
@@ -35,7 +39,11 @@ export const DEFAULT_MAP_LAYER_SETTINGS: MapLayerSettings = {
   liveComets: true,
   packetResidue: true,
   observerBursts: true,
-  messageBubbles: true
+  messageBubbles: true,
+  nodeModels3D: true,
+  routeArcs3D: true,
+  packetComets3D: true,
+  buildingExtrusions: true
 };
 
 export const DEFAULT_PACKET_VISUAL_SETTINGS: PacketVisualSettings = {
@@ -69,7 +77,11 @@ export function normalizeLayerSettings(input: unknown): MapLayerSettings {
     liveComets: boolOrDefault(raw.liveComets, DEFAULT_MAP_LAYER_SETTINGS.liveComets),
     packetResidue: boolOrDefault(raw.packetResidue, DEFAULT_MAP_LAYER_SETTINGS.packetResidue),
     observerBursts: boolOrDefault(raw.observerBursts, DEFAULT_MAP_LAYER_SETTINGS.observerBursts),
-    messageBubbles: boolOrDefault(raw.messageBubbles, DEFAULT_MAP_LAYER_SETTINGS.messageBubbles)
+    messageBubbles: boolOrDefault(raw.messageBubbles, DEFAULT_MAP_LAYER_SETTINGS.messageBubbles),
+    nodeModels3D: boolOrDefault(raw.nodeModels3D, DEFAULT_MAP_LAYER_SETTINGS.nodeModels3D),
+    routeArcs3D: boolOrDefault(raw.routeArcs3D, DEFAULT_MAP_LAYER_SETTINGS.routeArcs3D),
+    packetComets3D: boolOrDefault(raw.packetComets3D, DEFAULT_MAP_LAYER_SETTINGS.packetComets3D),
+    buildingExtrusions: boolOrDefault(raw.buildingExtrusions, DEFAULT_MAP_LAYER_SETTINGS.buildingExtrusions)
   };
 }
 
@@ -113,7 +125,11 @@ export function layerSettingsSignature(settings: MapLayerSettings): string {
     settings.liveComets,
     settings.packetResidue,
     settings.observerBursts,
-    settings.messageBubbles
+    settings.messageBubbles,
+    settings.nodeModels3D,
+    settings.routeArcs3D,
+    settings.packetComets3D,
+    settings.buildingExtrusions
   ].map((value) => (value ? '1' : '0')).join('');
 }
 

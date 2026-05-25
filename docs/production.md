@@ -69,7 +69,7 @@ docker run --rm -p 8080:8080 \
   -e PUBLIC_MODE=true \
   -e PUBLIC_BASE_URL=http://localhost:8080 \
   -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
-  ghcr.io/n30nex/mc-cartolive:2.4.8
+  ghcr.io/n30nex/mc-cartolive:2.4.9
 ```
 
 For production, keep private settings in an env file and mount persistent data:
@@ -79,7 +79,7 @@ docker run -d --name mc-cartolive \
   -p 8080:8080 \
   --env-file .env \
   -v mc-cartolive-data:/app/data \
-  ghcr.io/n30nex/mc-cartolive:2.4.8
+  ghcr.io/n30nex/mc-cartolive:2.4.9
 ```
 
 The published image runs as non-root `appuser`, includes OCI source/version
@@ -132,7 +132,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.4.8 exposes the app version/build in the top project bar. CI builds use
+- Version 2.4.9 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -141,9 +141,12 @@ docker compose up -d
 - Live confidence is separated into packet ingest freshness, public cache
   freshness, route motion, observer motion, and map motion. Packet ingest should
   normally be less than five seconds stale on production traffic.
-- Docker Compose forwards optional `VITE_BUILD_NUMBER`, `VITE_GIT_SHA`, and
-  `VITE_BUILD_TIME` build args so release builds can link directly to the
-  source commit.
+- Docker Compose forwards optional `VITE_BUILD_NUMBER`, `VITE_GIT_SHA`,
+  `VITE_BUILD_TIME`, `VITE_OPENFREEMAP_STYLE_URL`,
+  `VITE_OPENFREEMAP_TILEJSON_URL`, `VITE_TERRAIN_TILEJSON_URL`, and
+  `VITE_TERRAIN_EXAGGERATION` build args so release builds can link directly
+  to the source commit and operators can choose self-hosted OpenFreeMap/terrain
+  TileJSON sources.
 - `PUBLIC_BASE_URL` must match the public browser origin so WebSocket origin checks pass.
 - `PUBLIC_IATAS` should stay restricted to supported Canada IATA region codes.
 - Keep `PUBLIC_MODE=true` on public hosts.
@@ -181,6 +184,10 @@ or observer record.
   surface, live pulse clock, NetGraph, and the Original/OpenFreeMap map toggle
   use only sanitized public state, WebSocket events, and public history
   endpoints.
+- OpenFreeMap 3D uses a lazy Three.js custom layer for procedural node models,
+  elevated route arcs, observer glows, and 3D packet comet trails. The 2D
+  MapLibre layers remain in place for labels, clicks, selection, fallback
+  rendering, and mobile safety.
 - Dark/light mode, palette choice, VCR open state, Packets panel mode, Map
   Settings layer/packet visuals, and panel visibility are
   browser-local UI preferences. They do not require database or API migrations.

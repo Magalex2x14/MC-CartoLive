@@ -4,6 +4,25 @@
 
 - No unreleased changes.
 
+## 2.4.9 - 2026-05-25
+
+- Upgraded OpenFreeMap mode with a lazy-loaded Three.js custom 3D layer for
+  procedural repeater towers, T-Deck-style companions, room houses, observer
+  beacons, elevated route arcs, and 3D packet comet trails.
+- Added shared route arc sampling so routes, analysis paths, packet replay, and
+  OpenFreeMap 3D visuals follow the same deterministic path geometry.
+- Added Map Settings toggles for 3D node models, route arcs, packet comets, and
+  building extrusions while keeping flat mode and existing 2D hit layers intact.
+- Tuned OpenFreeMap dark/light terrain, hillshade, fog, and building extrusion
+  colors for stronger overlay contrast without adding a new public API or tile
+  proxy.
+- Added top-bar `Changelog`, `Features`, and `Guide` popups, plus a first-visit
+  welcome guide that users can dismiss through browser-local storage.
+- Updated the README with current v2.4.9 screenshots for OpenFreeMap 3D, Packets,
+  Plot Routes, and NetGraph.
+- Added Three.js as a split frontend chunk, passed OpenFreeMap build overrides
+  through Docker Compose, and updated release metadata/docs for `2.4.9`.
+
 ## 2.4.8 - 2026-05-25
 
 - Added a top-bar `NetGraph` page at `#/netgraph` with a full-screen canvas graph

@@ -555,7 +555,9 @@ button {
 
 .link-bar-brand,
 .link-bar-github,
-.link-bar-build {
+.link-bar-build,
+.link-bar-right,
+.link-bar-info-actions {
   display: inline-flex;
   align-items: center;
   min-width: 0;
@@ -650,8 +652,246 @@ button {
 }
 
 .link-bar-github {
-  justify-self: end;
   color: var(--mc-text-normal, #dbeafe);
+}
+
+.link-bar-right {
+  justify-self: end;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.link-bar-info-actions {
+  gap: 5px;
+}
+
+.link-bar-info-actions button,
+.link-bar-info-popover button,
+.welcome-guide-popover button,
+.guide-card button {
+  color: var(--mc-text-normal, #dbeafe);
+  background: color-mix(in srgb, var(--mc-control-bg, rgba(8, 16, 28, 0.74)) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mc-accent, #38bdf8) 22%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.link-bar-info-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 23px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 780;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.link-bar-info-actions button:hover,
+.link-bar-info-actions button:focus-visible,
+.link-bar-info-actions button.active {
+  color: var(--mc-text, #ffffff);
+  background: color-mix(in srgb, var(--mc-accent, #38bdf8) 13%, transparent);
+  border-color: var(--mc-border-strong, rgba(125, 211, 252, 0.42));
+  outline: none;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--mc-accent, #38bdf8) 18%, transparent);
+}
+
+.link-bar-info-popover,
+.welcome-guide-popover,
+.guide-overlay {
+  position: fixed;
+  z-index: 12;
+}
+
+.link-bar-info-popover,
+.welcome-guide-popover,
+.guide-card {
+  color: var(--mc-text, #f8fafc);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--mc-surface, #07101d) 96%, transparent), color-mix(in srgb, var(--mc-surface-strong, #101827) 92%, transparent)),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--mc-accent, #38bdf8) 16%, transparent), transparent 38%);
+  border: 1px solid var(--mc-border-strong, rgba(125, 211, 252, 0.46));
+  border-radius: 9px;
+  box-shadow:
+    0 22px 64px var(--mc-shadow, rgba(0, 0, 0, 0.48)),
+    0 0 28px color-mix(in srgb, var(--mc-accent, #38bdf8) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px) saturate(1.25);
+}
+
+.link-bar-info-popover {
+  top: 50px;
+  right: 110px;
+  width: min(430px, calc(100vw - 24px));
+  padding: 12px;
+}
+
+.link-bar-info-popover header,
+.guide-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.link-bar-info-popover header strong {
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+.link-bar-info-popover header button,
+.guide-card header button,
+.welcome-guide-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.link-bar-info-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.link-bar-info-body p,
+.welcome-guide-popover p {
+  margin: 0;
+  color: var(--mc-text-normal, #cbd5e1);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.link-bar-info-body ul,
+.welcome-guide-popover ul,
+.guide-card ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--mc-text-normal, #cbd5e1);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.link-bar-info-body a {
+  justify-self: start;
+  padding: 4px 7px;
+  color: var(--mc-link, #7dd3fc);
+  border: 1px solid color-mix(in srgb, var(--mc-link, #7dd3fc) 26%, transparent);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.welcome-guide-popover {
+  top: 58px;
+  right: 18px;
+  width: min(420px, calc(100vw - 24px));
+  padding: 15px;
+}
+
+.welcome-guide-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.welcome-guide-popover h2,
+.guide-card h2,
+.guide-card h3 {
+  margin: 0;
+  color: var(--mc-text, #f8fafc);
+}
+
+.welcome-guide-popover h2 {
+  margin: 3px 34px 8px 0;
+  font-size: 20px;
+}
+
+.welcome-guide-popover ul {
+  margin-top: 10px;
+}
+
+.welcome-guide-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  color: var(--mc-text-normal, #cbd5e1);
+  font-size: 12px;
+}
+
+.welcome-guide-check input {
+  accent-color: var(--mc-accent, #38bdf8);
+}
+
+.welcome-guide-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.welcome-guide-actions button {
+  min-height: 31px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.welcome-guide-actions button.primary {
+  color: #061016;
+  background: color-mix(in srgb, var(--mc-accent, #38bdf8) 82%, #ffffff 18%);
+  border-color: color-mix(in srgb, var(--mc-accent, #38bdf8) 72%, #ffffff 28%);
+}
+
+.guide-overlay {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(2, 6, 14, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.guide-card {
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 18px;
+}
+
+.guide-card header {
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--mc-border, #38bdf8) 55%, transparent);
+}
+
+.guide-card h2 {
+  margin-top: 3px;
+  font-size: 24px;
+}
+
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.guide-grid section {
+  padding: 12px;
+  background: color-mix(in srgb, var(--mc-control-bg, rgba(8, 16, 28, 0.74)) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mc-border, #38bdf8) 40%, transparent);
+  border-radius: 8px;
+}
+
+.guide-card h3 {
+  margin-bottom: 8px;
+  font-size: 13px;
 }
 
 .perf-panel,
@@ -3735,6 +3975,14 @@ button {
     justify-content: flex-end;
   }
 
+  .link-bar-info-actions span {
+    display: none;
+  }
+
+  .link-bar-info-actions button {
+    padding: 2px 6px;
+  }
+
   .hot-routes,
   .selection-panels.route-only,
   .selection-drawer {
@@ -3799,6 +4047,32 @@ button {
 
   .link-bar-github {
     display: none;
+  }
+
+  .link-bar-right {
+    display: none;
+  }
+
+  .link-bar-info-popover,
+  .welcome-guide-popover {
+    top: 52px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+
+  .guide-overlay {
+    padding: 10px;
+  }
+
+  .guide-card {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 28px);
+    padding: 13px;
+  }
+
+  .guide-grid {
+    grid-template-columns: 1fr;
   }
 
   .perf-panel,

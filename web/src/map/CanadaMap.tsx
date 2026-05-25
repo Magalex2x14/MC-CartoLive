@@ -58,6 +58,7 @@ import {
 import { easeOutCubic, fitToNodes, fitToRoute, fitToSegments, followTrafficPadding, isFollowPoint, mapViewFromMap, mapViewportSize } from './mapCamera';
 import { setSourceData, type FeatureCollection } from './sourceDataQueue';
 import { DETAIL_MIN_ZOOM, NODE_CLUSTER_MAX_ZOOM, type MapVisualMode, isClusterZoom, isDetailZoom, visualModeForZoom } from './zoomMode';
+import type { OpenFreeMap3DController } from './openFreeMap3D';
 
 export type MapAction =
   | { type: 'reset'; token: number }
@@ -502,11 +503,11 @@ export const mapOverlayStyle: maplibregl.StyleSpecification = {
       source: HILLSHADE_SOURCE,
       paint: {
         'hillshade-method': 'multidirectional',
-        'hillshade-highlight-color': ['#334155', '#475569', '#64748b', '#94a3b8'],
-        'hillshade-shadow-color': ['#020617', '#06101f', '#0f172a', '#111827'],
+        'hillshade-highlight-color': ['#1e293b', '#334155', '#475569', '#64748b'],
+        'hillshade-shadow-color': ['#020617', '#08111f', '#0f172a', '#1e293b'],
         'hillshade-illumination-direction': [270, 315, 0, 45],
         'hillshade-illumination-altitude': [24, 30, 36, 28],
-        'hillshade-exaggeration': 0.72
+        'hillshade-exaggeration': 0.54
       } as any
     },
     {
@@ -999,6 +1000,8 @@ export default function CanadaMap({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const animatorRef = useRef<PacketAnimator | null>(null);
+  const openFreeMap3DRef = useRef<OpenFreeMap3DController | null>(null);
+  const openFreeMap3DImportRef = useRef<Promise<void> | null>(null);
   const loadedRef = useRef(false);
   const layerEventsBoundRef = useRef(false);
   const initialViewAppliedRef = useRef(false);
@@ -1049,6 +1052,62 @@ export default function CanadaMap({
   const plotMapPointRef = useRef(onPlotMapPoint);
   const clearSelectionRef = useRef(onClearSelection);
 
+  const destroyOpenFreeMap3D = () => {
+    openFreeMap3DRef.current?.destroy();
+    openFreeMap3DRef.current = null;
+  };
+
+  const updateOpenFreeMap3D = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const enabled = baseModeRef.current === 'openfreemap'
+      && (layerSettingsRef.current.nodeModels3D || layerSettingsRef.current.routeArcs3D || layerSettingsRef.current.packetComets3D);
+    if (!enabled) {
+      destroyOpenFreeMap3D();
+      return;
+    }
+    const applyUpdate = (controller: OpenFreeMap3DController) => {
+      controller.setPaused(pausedRef.current || pageHiddenRef.current);
+      controller.update({
+        nodes: nodesRef.current,
+        routes: routesRef.current,
+        focus: nodeFocusRef.current,
+        selectedRouteID: selectedRouteIDRef.current,
+        analysisSegments: analysisSegmentsRef.current,
+        layerSettings: layerSettingsRef.current,
+        packetVisualSettings: packetVisualSettingsRef.current,
+        themeMode: themeModeRef.current
+      });
+    };
+    if (openFreeMap3DRef.current) {
+      applyUpdate(openFreeMap3DRef.current);
+      return;
+    }
+    if (openFreeMap3DImportRef.current) return;
+    openFreeMap3DImportRef.current = import('./openFreeMap3D')
+      .then(({ createOpenFreeMap3DController, OPENFREEMAP_3D_LAYER_ID }) => {
+        openFreeMap3DImportRef.current = null;
+        const currentMap = mapRef.current;
+        if (!currentMap || currentMap !== map || baseModeRef.current !== 'openfreemap' || !loadedRef.current) return;
+        const controller = createOpenFreeMap3DController();
+        openFreeMap3DRef.current = controller;
+        if (!currentMap.getLayer(OPENFREEMAP_3D_LAYER_ID)) {
+          currentMap.addLayer(controller.layer, currentMap.getLayer(NODE_HALO_LAYER) ? NODE_HALO_LAYER : undefined);
+        }
+        applyUpdate(controller);
+      })
+      .catch((error) => {
+        openFreeMap3DImportRef.current = null;
+        setMapInitError(`OpenFreeMap 3D warning: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  };
+
+  const addPulseTo3D = (map: maplibregl.Map, pulse: PublicRoutePulse, options = {}) => {
+    if (baseModeRef.current !== 'openfreemap' || !layerSettingsRef.current.packetComets3D || !layerSettingsRef.current.liveComets || !isDetailMode(map)) return false;
+    updateOpenFreeMap3D();
+    return openFreeMap3DRef.current?.addPulse(pulse, options) === true;
+  };
+
   const showMessageBubble = (map: maplibregl.Map, bubble: MessageBubble | null) => {
     if (!bubble) return;
     setMessageBubbles((current) => projectMessageBubbles(map, [...current.filter((item) => item.id !== bubble.id), bubble].slice(-12), performance.now()));
@@ -1076,7 +1135,7 @@ export default function CanadaMap({
       setMessageBubbles([]);
       return;
     }
-    if (shouldAnimate && layerSettingsRef.current.liveComets) animatorRef.current?.add(pulse);
+    if (shouldAnimate && layerSettingsRef.current.liveComets && !addPulseTo3D(map, pulse)) animatorRef.current?.add(pulse);
     addPulseNodeActivity(map, nodeActivityRef.current, pulse);
     addPulseNodeMeshActivity(nodeMeshActivityAtRef.current, pulse);
     if (shouldAnimate && layerSettingsRef.current.analysisPaths) {
@@ -1105,7 +1164,9 @@ export default function CanadaMap({
       setMessageBubbles([]);
       return;
     }
-    if (shouldAnimate && layerSettingsRef.current.observerBursts) animatorRef.current?.addObserverBurst(burst);
+    if (shouldAnimate && layerSettingsRef.current.observerBursts && !(baseModeRef.current === 'openfreemap' && openFreeMap3DRef.current?.addObserverBurst(burst))) {
+      animatorRef.current?.addObserverBurst(burst);
+    }
     if (map && shouldAnimate && layerSettingsRef.current.messageBubbles && shouldShowMessageBubble(burst)) {
       showMessageBubble(map, messageBubbleFromObserverBurst(map, burst));
     }
@@ -1162,6 +1223,7 @@ export default function CanadaMap({
   useEffect(() => {
     packetVisualSettingsRef.current = packetVisualSettings;
     animatorRef.current?.setVisualSettings(packetVisualSettings);
+    updateOpenFreeMap3D();
   }, [packetVisualSettings]);
 
   useEffect(() => {
@@ -1178,6 +1240,7 @@ export default function CanadaMap({
     const handleVisibility = () => {
       pageHiddenRef.current = document.hidden;
       animatorRef.current?.setPaused(document.hidden || pausedRef.current);
+      openFreeMap3DRef.current?.setPaused(document.hidden || pausedRef.current);
       if (document.hidden) {
         animatorRef.current?.clear();
         setMessageBubbles([]);
@@ -1344,6 +1407,7 @@ export default function CanadaMap({
         analysisRouteSignatureRef,
         true
       );
+      updateOpenFreeMap3D();
       publishView();
       updateMapOverlays();
       markPositionedNodesReady(map, nodesRef.current, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
@@ -1381,6 +1445,7 @@ export default function CanadaMap({
       clearRoutePayloadGlowStates(map, routePayloadGlowRef.current);
       stopClusterActivityGlowTimer(clusterActivityGlowTimerRef);
       clearClusterActivityGlowStates(map, clusterActivityGlowRef.current);
+      destroyOpenFreeMap3D();
       animatorRef.current?.destroy();
       animatorRef.current = null;
       map.remove();
@@ -1412,6 +1477,7 @@ export default function CanadaMap({
     stopRoutePayloadGlowTimer(routePayloadGlowTimerRef);
     clearClusterActivityGlowStates(map, clusterActivityGlowRef.current);
     stopClusterActivityGlowTimer(clusterActivityGlowTimerRef);
+    destroyOpenFreeMap3D();
 
     const nextStyle = mapStyleForMode(baseMode, themeMode);
     (window as any).__meshcoreMapStyle = nextStyle;
@@ -1474,6 +1540,7 @@ export default function CanadaMap({
       startNodeActivityTimer(map, nodeActivityRef, nodeActivityTimerRef);
     }
     markPositionedNodesReady(map, nodes, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
+    updateOpenFreeMap3D();
   }, [nodes, nodeFocus, nodeLabelClock, layerSettings.nodeLabels]);
 
   useEffect(() => {
@@ -1483,12 +1550,14 @@ export default function CanadaMap({
       updateRouteRendering(map, routes, selectedRouteID, nodeFocus, routeSourceSignatureRef, routeColorSignatureRef, animatorRef);
       updateAnalysisRouteRendering(map, routes, selectedRouteID, nodeFocus, analysisSegments, analysisRouteSignatureRef);
       setRoutePayloadGlowSource(map, routes, routePayloadGlowRef.current, selectedRouteID, nodeFocus);
+      updateOpenFreeMap3D();
     }
   }, [routes, selectedRouteID, nodeFocus, analysisSegments]);
 
   useEffect(() => {
     pausedRef.current = paused;
     animatorRef.current?.setPaused(paused || pageHiddenRef.current);
+    openFreeMap3DRef.current?.setPaused(paused || pageHiddenRef.current);
   }, [paused]);
 
   useEffect(() => {
@@ -1498,6 +1567,7 @@ export default function CanadaMap({
     applyLayerSettings(map, layerSettings);
     if (!layerSettings.messageBubbles) setMessageBubbles([]);
     if (!layerSettings.nodeLabels) setScreenNodeLabels([]);
+    updateOpenFreeMap3D();
   }, [layerSettings]);
 
   useEffect(() => {
@@ -1517,6 +1587,7 @@ export default function CanadaMap({
   useEffect(() => {
     const map = mapRef.current;
     animatorRef.current?.clear();
+    destroyOpenFreeMap3D();
     if (map) {
       clearNodeActivityStates(map, nodeActivityRef.current);
       stopNodeActivityTimer(nodeActivityTimerRef);
@@ -1535,6 +1606,7 @@ export default function CanadaMap({
     pulseSchedulerTimerRef.current = null;
     observerSchedulerTimerRef.current = null;
     replayActionTimerRef.current = null;
+    updateOpenFreeMap3D();
   }, [clearToken]);
 
   useEffect(() => {
@@ -1588,13 +1660,14 @@ export default function CanadaMap({
       replayActionTimerRef.current = window.setTimeout(() => {
         replayActionTimerRef.current = null;
         if (!layerSettingsRef.current.liveComets) return;
-        animatorRef.current?.add(mapAction.pulse, {
+        const options = {
           force: true,
           travelDurationMs: mapAction.travelDurationMs,
           brightness: mapAction.pulse.replayOptions?.brightness,
           trailScale: mapAction.pulse.replayOptions?.trailScale,
           animationStyle: mapAction.pulse.replayOptions?.animationStyle
-        });
+        };
+        if (!addPulseTo3D(map, mapAction.pulse, options)) animatorRef.current?.add(mapAction.pulse, options);
       }, 900 + mapAction.settleMs);
     }
     if (mapAction.type === 'node') {
@@ -1679,23 +1752,24 @@ function addOpenFreeMap3DBase(map: maplibregl.Map, themeMode: MapThemeMode) {
   const labelLayerID = firstTextSymbolLayerID(map);
   addLayerIfMissing(map, {
     id: HILLSHADE_LAYER,
-    type: 'hillshade',
-    source: HILLSHADE_SOURCE,
-    paint: {
-      'hillshade-method': 'multidirectional',
-      'hillshade-highlight-color': themeMode === 'light' ? ['#ffffff', '#f8fafc', '#dbeafe', '#bfdbfe'] : ['#f8fafc', '#d9f99d', '#99f6e4', '#bae6fd'],
-      'hillshade-shadow-color': themeMode === 'light' ? ['#94a3b8', '#cbd5e1', '#d1d5db', '#e5e7eb'] : ['#020617', '#0f172a', '#1e293b', '#334155'],
-      'hillshade-illumination-direction': [270, 315, 0, 45],
-      'hillshade-illumination-altitude': [24, 32, 36, 28]
-    } as any
-  }, labelLayerID);
+      type: 'hillshade',
+      source: HILLSHADE_SOURCE,
+      paint: {
+        'hillshade-method': 'multidirectional',
+        'hillshade-highlight-color': themeMode === 'light' ? ['#ffffff', '#f8fafc', '#e2e8f0', '#cbd5e1'] : ['#1e293b', '#334155', '#475569', '#64748b'],
+        'hillshade-shadow-color': themeMode === 'light' ? ['#94a3b8', '#cbd5e1', '#d1d5db', '#e5e7eb'] : ['#020617', '#08111f', '#0f172a', '#1e293b'],
+        'hillshade-illumination-direction': [270, 315, 0, 45],
+        'hillshade-illumination-altitude': [24, 32, 36, 28],
+        'hillshade-exaggeration': themeMode === 'light' ? 0.42 : 0.54
+      } as any
+    }, labelLayerID);
 
   addLayerIfMissing(map, {
     id: BUILDINGS_3D_LAYER,
     type: 'fill-extrusion',
     source: OPENFREEMAP_SOURCE,
     'source-layer': 'building',
-    minzoom: 13,
+    minzoom: 14.2,
     filter: ['!=', ['get', 'hide_3d'], true],
     paint: {
       'fill-extrusion-color': [
@@ -1703,44 +1777,44 @@ function addOpenFreeMap3DBase(map: maplibregl.Map, themeMode: MapThemeMode) {
         ['linear'],
         ['coalesce', ['get', 'render_height'], 0],
         0,
-        themeMode === 'light' ? '#cbd5e1' : '#1e293b',
+        themeMode === 'light' ? '#dbe3ee' : '#172033',
         80,
-        themeMode === 'light' ? '#93c5fd' : '#155e75',
+        themeMode === 'light' ? '#cbd5e1' : '#243047',
         200,
-        themeMode === 'light' ? '#a78bfa' : '#7c3aed',
+        themeMode === 'light' ? '#b6c3d3' : '#334155',
         420,
-        themeMode === 'light' ? '#f0abfc' : '#c4b5fd'
+        themeMode === 'light' ? '#94a3b8' : '#475569'
       ],
       'fill-extrusion-height': [
         'interpolate',
         ['linear'],
         ['zoom'],
-        13,
+        14.2,
         0,
-        14.4,
+        15.1,
         ['coalesce', ['get', 'render_height'], 0]
       ],
       'fill-extrusion-base': [
         'interpolate',
         ['linear'],
         ['zoom'],
-        13,
+        14.2,
         0,
-        14.4,
+        15.1,
         ['coalesce', ['get', 'render_min_height'], 0],
       ],
-      'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.22, 15, 0.78]
+      'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 14.2, 0.16, 15.5, themeMode === 'light' ? 0.56 : 0.62]
     }
   }, labelLayerID);
 
   map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
   map.setSky({
     'sky-color': themeMode === 'light' ? '#dbeafe' : '#0f172a',
-    'horizon-color': themeMode === 'light' ? '#93c5fd' : '#2563eb',
-    'fog-color': themeMode === 'light' ? '#eff6ff' : '#020617',
-    'sky-horizon-blend': 0.45,
-    'horizon-fog-blend': themeMode === 'light' ? 0.28 : 0.55,
-    'fog-ground-blend': themeMode === 'light' ? 0.12 : 0.34
+    'horizon-color': themeMode === 'light' ? '#bfdbfe' : '#172554',
+    'fog-color': themeMode === 'light' ? '#eff6ff' : '#07111f',
+    'sky-horizon-blend': 0.34,
+    'horizon-fog-blend': themeMode === 'light' ? 0.18 : 0.34,
+    'fog-ground-blend': themeMode === 'light' ? 0.08 : 0.18
   });
 }
 
@@ -2076,6 +2150,7 @@ function applyLayerSettings(map: maplibregl.Map, settings: MapLayerSettings) {
   for (const layerID of routeLayers) setLayerVisibility(map, layerID, settings.routes);
   for (const layerID of analysisLayers) setLayerVisibility(map, layerID, settings.analysisPaths);
   for (const layerID of observerBurstLayers) setLayerVisibility(map, layerID, settings.observerBursts);
+  setLayerVisibility(map, BUILDINGS_3D_LAYER, settings.buildingExtrusions);
 }
 
 function setLayerVisibility(map: maplibregl.Map, layerID: string, visible: boolean) {

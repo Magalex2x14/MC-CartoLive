@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.4.8
+# MeshCore MQTT Live Map v2.4.9
 
 Also known as **MC-CartoLive**.
 
@@ -23,6 +23,30 @@ Real public map data from the production UI:
 
 ![Ottawa live route detail](docs/assets/screenshots/ottawa-detail.png)
 
+### v2.4.9 Feature Gallery
+
+OpenFreeMap 3D turns the public live map into a terrain-aware network view with
+procedural node models, elevated public route arcs, and 3D packet motion.
+
+![OpenFreeMap 3D route arcs and node models](docs/assets/screenshots/openfreemap-3d-arcs-2.4.9.png)
+
+Packets is a production browsing tool for true public paths: server-backed
+filters, segment details, focus/replay controls, and 24h public-safe history.
+
+![True-path Packets page](docs/assets/screenshots/packets-true-path-2.4.9.png)
+
+Plot Routes keeps long selected paths visible at low zoom for cross-region
+analysis without showing every idle route across the country.
+
+![Long Plot Routes analysis path](docs/assets/screenshots/plot-routes-long-path-2.4.9.png)
+
+NetGraph renders the connected public RF topology as a closeable live graph,
+with live pulses, search, fit/reset, and compact node/pathway inspectors.
+
+![NetGraph overview](docs/assets/screenshots/netgraph-overview-2.4.9.png)
+
+![NetGraph node inspector](docs/assets/screenshots/netgraph-node-inspector-2.4.9.png)
+
 ## Capabilities
 
 - Ingests MeshCore MQTT traffic read-only, decodes public-safe packet metadata,
@@ -33,9 +57,14 @@ Real public map data from the production UI:
   live packet comets, observer activity, message bubbles, Plot Routes, a
   reachable-node phonebook, OpenFreeMap 3D mode, light/dark themes, and palette
   controls.
+- OpenFreeMap 3D mode uses terrain, neutral building extrusions, procedural
+  low-poly node models, elevated route arcs, and 3D packet comet trails while
+  retaining the existing 2D layers for labels, clicks, and fallback rendering.
 - Provides hidden-by-default 24h VCR replay, a Packets tab for true-path packet
   records, a Perf tab for public-safe runtime counters, and a NetGraph tab for a
   live connected-node graph using the same sanitized public routes and events.
+- Adds top-bar quick help, latest changelog, and feature list popups. First-time
+  visitors see a dismissible welcome guide stored only in browser localStorage.
 - Includes operator tools for release checks, live droplet smoke checks, soak
   checks, performance counters, and local-only map-inclusion diagnostics.
 - Keeps public APIs sanitized: no broker credentials, channel secrets, live DB
@@ -79,6 +108,9 @@ http://localhost:39476
 The dashboard starts in the MapLibre/CARTO dark view. Use the map base toggle
 to switch the same live map to OpenFreeMap 3D without changing ports or
 services.
+In OpenFreeMap mode, Map Settings can independently toggle 3D node models,
+route arcs, packet comets, packet trails, observer bursts, and building
+extrusions.
 Use the top theme controls to switch dark/light mode and choose a color
 palette. These are browser-local preferences and do not change backend data.
 
@@ -105,7 +137,7 @@ docker run --rm -p 8080:8080 \
   -e PUBLIC_MODE=true \
   -e PUBLIC_BASE_URL=http://localhost:8080 \
   -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
-  ghcr.io/n30nex/mc-cartolive:2.4.8
+  ghcr.io/n30nex/mc-cartolive:2.4.9
 ```
 
 For a real public deployment, mount persistent data and provide private MQTT
@@ -116,7 +148,7 @@ docker run -d --name mc-cartolive \
   -p 8080:8080 \
   --env-file .env \
   -v mc-cartolive-data:/app/data \
-  ghcr.io/n30nex/mc-cartolive:2.4.8
+  ghcr.io/n30nex/mc-cartolive:2.4.9
 ```
 
 The image includes the synthetic demo fixture, runs as non-root `appuser`, and
@@ -187,7 +219,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.4.8 release path is clone + Docker Compose on a VPS or local
+The recommended v2.4.9 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

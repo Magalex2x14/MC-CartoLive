@@ -5,7 +5,7 @@ import { routeAssetIcons } from '../assets/routes/assets';
 import { parseSharedView, type MapViewState, type SharedViewState } from '../shareView';
 import { normalizePayloadType, payloadVisual } from '../payloadVisuals';
 import { recordSourceUpdate } from '../perfDiagnostics';
-import { isMappableNode } from './geo';
+import { isMappableEndpoint, isMappableNode } from './geo';
 import { shouldAnimateLiveEvent } from './animationSafety';
 import {
   CLUSTER_ACTIVITY_GLOW_MS,
@@ -21,6 +21,7 @@ import {
 import { nodeFocusFromRoutes, type NodeFocus } from './nodeFocus';
 import { nodeSourceSignature } from './nodeSource';
 import { PacketAnimator } from './packetAnimator';
+import { DEFAULT_MAP_LAYER_SETTINGS, DEFAULT_PACKET_VISUAL_SETTINGS, type MapLayerSettings, type PacketVisualSettings } from '../mapSettings';
 import {
   compactNodeLabel,
   NODE_ACTIVITY_UPDATE_MS,
@@ -62,6 +63,7 @@ export type MapAction =
   | { type: 'route'; token: number; routeID: string }
   | { type: 'node'; token: number; nodeID: string }
   | { type: 'packet'; token: number; segments: PublicRoutePulse['segments'] }
+  | { type: 'packet-replay'; token: number; segments: PublicRoutePulse['segments']; pulse: PublicRoutePulse; settleMs: number; travelDurationMs: number }
   | null;
 
 interface Props {
@@ -76,6 +78,9 @@ interface Props {
   selectedRouteID: string | null;
   highlightedPathRouteIDs: Set<string>;
   highlightedPathNodeIDs: Set<string>;
+  analysisSegments: PublicRoutePulse['segments'];
+  layerSettings: MapLayerSettings;
+  packetVisualSettings: PacketVisualSettings;
   plotMode: 'off' | 'node' | 'area';
   mapAction: MapAction;
   baseMode: MapBaseMode;
@@ -149,6 +154,9 @@ const CLUSTER_LAYER = 'node-clusters';
 const CLUSTER_COUNT_LAYER = 'node-cluster-counts';
 const CLUSTER_ROLE_BADGE_LAYER_PREFIX = 'node-cluster-role';
 const ROUTE_GLOW_LAYER = 'route-focus-glow';
+const ANALYSIS_ROUTE_SOURCE = 'analysis-route-paths';
+export const ANALYSIS_ROUTE_GLOW_LAYER = 'analysis-route-overview-glow';
+export const ANALYSIS_ROUTE_LAYER = 'analysis-route-overview-line';
 const ROUTE_PAYLOAD_GLOW_SOURCE = 'route-payload-glows';
 const ROUTE_PAYLOAD_GLOW_LAYER = 'route-payload-glow';
 const NODE_HALO_LAYER = 'selected-node-halo';
@@ -395,6 +403,10 @@ export const mapOverlayStyle: maplibregl.StyleSpecification = {
       type: 'geojson',
       data: emptyCollection() as any
     },
+    [ANALYSIS_ROUTE_SOURCE]: {
+      type: 'geojson',
+      data: emptyCollection() as any
+    },
     [ROUTE_PAYLOAD_GLOW_SOURCE]: {
       type: 'geojson',
       data: emptyCollection() as any
@@ -581,6 +593,29 @@ export const mapOverlayStyle: maplibregl.StyleSpecification = {
         'text-halo-color': '#020617',
         'text-halo-width': 1.6,
         'text-halo-blur': 0.4
+      }
+    },
+    {
+      id: ANALYSIS_ROUTE_GLOW_LAYER,
+      type: 'line',
+      source: ANALYSIS_ROUTE_SOURCE,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 2.4, 5, 7, 8, 12, 11],
+        'line-blur': ['interpolate', ['linear'], ['zoom'], 2.4, 4, 10, 7],
+        'line-opacity': ['coalesce', ['get', 'glowOpacity'], 0.24]
+      }
+    },
+    {
+      id: ANALYSIS_ROUTE_LAYER,
+      type: 'line',
+      source: ANALYSIS_ROUTE_SOURCE,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 2.4, 2.4, 7, 3.6, 12, 5.2],
+        'line-opacity': ['coalesce', ['get', 'opacity'], 0.86]
       }
     },
     {
@@ -936,6 +971,9 @@ export default function CanadaMap({
   selectedRouteID,
   highlightedPathRouteIDs,
   highlightedPathNodeIDs,
+  analysisSegments,
+  layerSettings = DEFAULT_MAP_LAYER_SETTINGS,
+  packetVisualSettings = DEFAULT_PACKET_VISUAL_SETTINGS,
   plotMode,
   mapAction,
   baseMode,
@@ -999,7 +1037,12 @@ export default function CanadaMap({
   const selectedNodeIDRef = useRef(selectedNodeID);
   const selectedRouteIDRef = useRef(selectedRouteID);
   const nodeFocusRef = useRef(nodeFocus);
+  const analysisSegmentsRef = useRef(analysisSegments);
+  const layerSettingsRef = useRef(layerSettings);
+  const packetVisualSettingsRef = useRef(packetVisualSettings);
   const routeSourceSignatureRef = useRef('');
+  const analysisRouteSignatureRef = useRef('');
+  const replayActionTimerRef = useRef<number | null>(null);
   const routeColorSignatureRef = useRef('');
   const positionedNodesRenderedRef = useRef(onPositionedNodesRendered);
   const viewChangeRef = useRef(onViewChange);
@@ -1023,28 +1066,31 @@ export default function CanadaMap({
 
   const renderScheduledPulse = (pulse: PublicRoutePulse) => {
     const map = mapRef.current;
+    if (pausedRef.current) return;
     const shouldAnimate = shouldAnimateLiveEvent(visualReceivedAt(pulse), Date.now(), pageHiddenRef.current);
     if (!map) return;
     if (shouldAnimate) followTrafficPulse(map, pulse, followTrafficRef.current, followTrafficStateRef);
     if (isClusterMode(map)) {
-      if (shouldAnimate) animatorRef.current?.add(pulse);
-      if (shouldAnimate && addPulseClusterActivityGlow(map, clusterActivityGlowRef.current, pulse)) {
+      if (shouldAnimate && layerSettingsRef.current.liveComets) animatorRef.current?.add(pulse);
+      if (shouldAnimate && layerSettingsRef.current.observerBursts && addPulseClusterActivityGlow(map, clusterActivityGlowRef.current, pulse)) {
         startClusterActivityGlowTimer(map, clusterActivityGlowRef, clusterActivityGlowTimerRef);
       }
       setScreenNodeLabels([]);
       setMessageBubbles([]);
       return;
     }
-    if (shouldAnimate) animatorRef.current?.add(pulse);
+    if (shouldAnimate && layerSettingsRef.current.liveComets) animatorRef.current?.add(pulse);
     addPulseNodeActivity(map, nodeActivityRef.current, pulse);
     addPulseNodeMeshActivity(nodeMeshActivityAtRef.current, pulse);
-    if (shouldAnimate) {
+    if (shouldAnimate && layerSettingsRef.current.analysisPaths) {
       addPulseRoutePayloadGlow(routePayloadGlowRef.current, pulse);
       setRoutePayloadGlowSource(map, routesRef.current, routePayloadGlowRef.current, selectedRouteIDRef.current, nodeFocusRef.current);
       startRoutePayloadGlowTimer(map, routesRef, routePayloadGlowRef, selectedRouteIDRef, nodeFocusRef, routePayloadGlowTimerRef);
     }
-    setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, pulse.heardAt, nodeMeshActivityAtRef.current, nodeActivityRef.current));
-    if (shouldAnimate && shouldShowMessageBubble(pulse)) {
+    if (layerSettingsRef.current.nodeLabels) {
+      setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, pulse.heardAt, nodeMeshActivityAtRef.current, nodeActivityRef.current));
+    }
+    if (shouldAnimate && layerSettingsRef.current.messageBubbles && shouldShowMessageBubble(pulse)) {
       showMessageBubble(map, messageBubbleFromPulse(map, pulse));
     }
     startNodeActivityTimer(map, nodeActivityRef, nodeActivityTimerRef);
@@ -1052,17 +1098,18 @@ export default function CanadaMap({
 
   const renderScheduledObserverBurst = (burst: PublicObserverBurst) => {
     const map = mapRef.current;
+    if (pausedRef.current) return;
     const shouldAnimate = shouldAnimateLiveEvent(visualReceivedAt(burst), Date.now(), pageHiddenRef.current);
     if (map && shouldAnimate) followTrafficObserverBurst(map, burst, followTrafficRef.current, followTrafficStateRef);
     if (map && isClusterMode(map)) {
-      if (shouldAnimate && addObserverBurstClusterActivityGlow(map, clusterActivityGlowRef.current, burst)) {
+      if (shouldAnimate && layerSettingsRef.current.observerBursts && addObserverBurstClusterActivityGlow(map, clusterActivityGlowRef.current, burst)) {
         startClusterActivityGlowTimer(map, clusterActivityGlowRef, clusterActivityGlowTimerRef);
       }
       setMessageBubbles([]);
       return;
     }
-    if (shouldAnimate) animatorRef.current?.addObserverBurst(burst);
-    if (map && shouldAnimate && shouldShowMessageBubble(burst)) {
+    if (shouldAnimate && layerSettingsRef.current.observerBursts) animatorRef.current?.addObserverBurst(burst);
+    if (map && shouldAnimate && layerSettingsRef.current.messageBubbles && shouldShowMessageBubble(burst)) {
       showMessageBubble(map, messageBubbleFromObserverBurst(map, burst));
     }
   };
@@ -1106,6 +1153,19 @@ export default function CanadaMap({
   useEffect(() => {
     nodeFocusRef.current = nodeFocus;
   }, [nodeFocus]);
+
+  useEffect(() => {
+    analysisSegmentsRef.current = analysisSegments;
+  }, [analysisSegments]);
+
+  useEffect(() => {
+    layerSettingsRef.current = layerSettings;
+  }, [layerSettings]);
+
+  useEffect(() => {
+    packetVisualSettingsRef.current = packetVisualSettings;
+    animatorRef.current?.setVisualSettings(packetVisualSettings);
+  }, [packetVisualSettings]);
 
   useEffect(() => {
     positionedNodesRenderedRef.current = onPositionedNodesRendered;
@@ -1158,7 +1218,11 @@ export default function CanadaMap({
     (window as any).__meshcoreMap = map;
     (window as any).__meshcoreMapStyle = initialStyle;
     mapRef.current = map;
-    animatorRef.current = new PacketAnimator(map, canvasRef.current, { maskLayerIDs: [CLUSTER_LAYER, NODE_HALO_LAYER, NODE_LAYER] });
+    animatorRef.current = new PacketAnimator(map, canvasRef.current, {
+      maskLayerIDs: [CLUSTER_LAYER, NODE_HALO_LAYER, NODE_LAYER],
+      layerSettings: layerSettingsRef.current,
+      visualSettings: packetVisualSettingsRef.current
+    });
 
     const resizeMap = () => {
       map.resize();
@@ -1184,8 +1248,16 @@ export default function CanadaMap({
         setMessageBubbles([]);
         return;
       }
-      setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current, nodeActivityRef.current));
-      setMessageBubbles((current) => projectMessageBubbles(map, current, performance.now()));
+      if (layerSettingsRef.current.nodeLabels) {
+        setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current, nodeActivityRef.current));
+      } else {
+        setScreenNodeLabels([]);
+      }
+      if (layerSettingsRef.current.messageBubbles) {
+        setMessageBubbles((current) => projectMessageBubbles(map, current, performance.now()));
+      } else {
+        setMessageBubbles([]);
+      }
     };
     const scheduleMapOverlays = () => {
       if (nodeLabelFrameRef.current !== null) return;
@@ -1229,6 +1301,7 @@ export default function CanadaMap({
       }
       try {
         addPublicLayers(map);
+        applyLayerSettings(map, layerSettingsRef.current);
         if (!layerEventsBoundRef.current) {
           bindLayerEvents(map, nodesRef, nodeMeshActivityAtRef, selectedNodeRef, plotModeRef, plotNodePickRef, plotMapPointRef, clearSelectionRef, setHoveredNode);
           layerEventsBoundRef.current = true;
@@ -1265,6 +1338,15 @@ export default function CanadaMap({
         animatorRef,
         true
       );
+      updateAnalysisRouteRendering(
+        map,
+        routesRef.current,
+        selectedRouteIDRef.current,
+        nodeFocusRef.current,
+        analysisSegmentsRef.current,
+        analysisRouteSignatureRef,
+        true
+      );
       publishView();
       updateMapOverlays();
       markPositionedNodesReady(map, nodesRef.current, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
@@ -1288,8 +1370,10 @@ export default function CanadaMap({
       nodeLabelFrameRef.current = null;
       if (pulseSchedulerTimerRef.current !== null) window.clearTimeout(pulseSchedulerTimerRef.current);
       if (observerSchedulerTimerRef.current !== null) window.clearTimeout(observerSchedulerTimerRef.current);
+      if (replayActionTimerRef.current !== null) window.clearTimeout(replayActionTimerRef.current);
       pulseSchedulerTimerRef.current = null;
       observerSchedulerTimerRef.current = null;
+      replayActionTimerRef.current = null;
       pendingPulsesRef.current = [];
       pendingObserverBurstsRef.current = [];
       for (const timer of messageBubbleCleanupTimersRef.current.values()) window.clearTimeout(timer);
@@ -1356,8 +1440,16 @@ export default function CanadaMap({
         setMessageBubbles([]);
         return;
       }
-      setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current, nodeActivityRef.current));
-      setMessageBubbles((current) => projectMessageBubbles(map, current, performance.now()));
+      if (layerSettingsRef.current.nodeLabels) {
+        setScreenNodeLabels(projectNodeLabels(map, nodesRef.current, nodeFocusRef.current, Date.now(), nodeMeshActivityAtRef.current, nodeActivityRef.current));
+      } else {
+        setScreenNodeLabels([]);
+      }
+      if (layerSettingsRef.current.messageBubbles) {
+        setMessageBubbles((current) => projectMessageBubbles(map, current, performance.now()));
+      } else {
+        setMessageBubbles([]);
+      }
     }, 500);
     return () => window.clearInterval(interval);
   }, []);
@@ -1373,7 +1465,11 @@ export default function CanadaMap({
       markPositionedNodesReady(map, nodes, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
       return;
     }
-    setScreenNodeLabels(projectNodeLabels(map, nodes, nodeFocus, nodeLabelClock, nodeMeshActivityAtRef.current, nodeActivityRef.current));
+    if (layerSettings.nodeLabels) {
+      setScreenNodeLabels(projectNodeLabels(map, nodes, nodeFocus, nodeLabelClock, nodeMeshActivityAtRef.current, nodeActivityRef.current));
+    } else {
+      setScreenNodeLabels([]);
+    }
     if (addChangedNodeActivity(map, nodeActivityRef.current, nodeTelemetryRef.current, nodeMeshActivityAtRef.current, nodes)) {
       startNodeActivityTimer(map, nodeActivityRef, nodeActivityTimerRef);
     }
@@ -1381,21 +1477,31 @@ export default function CanadaMap({
       startNodeActivityTimer(map, nodeActivityRef, nodeActivityTimerRef);
     }
     markPositionedNodesReady(map, nodes, fitInitialNodesRef, positionedNodesReadyRef, positionedNodesRenderedRef);
-  }, [nodes, nodeFocus, nodeLabelClock]);
+  }, [nodes, nodeFocus, nodeLabelClock, layerSettings.nodeLabels]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (loadedRef.current) {
       updateRouteRendering(map, routes, selectedRouteID, nodeFocus, routeSourceSignatureRef, routeColorSignatureRef, animatorRef);
+      updateAnalysisRouteRendering(map, routes, selectedRouteID, nodeFocus, analysisSegments, analysisRouteSignatureRef);
       setRoutePayloadGlowSource(map, routes, routePayloadGlowRef.current, selectedRouteID, nodeFocus);
     }
-  }, [routes, selectedRouteID, nodeFocus]);
+  }, [routes, selectedRouteID, nodeFocus, analysisSegments]);
 
   useEffect(() => {
     pausedRef.current = paused;
     animatorRef.current?.setPaused(paused || pageHiddenRef.current);
   }, [paused]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    animatorRef.current?.setLayerSettings(layerSettings);
+    applyLayerSettings(map, layerSettings);
+    if (!layerSettings.messageBubbles) setMessageBubbles([]);
+    if (!layerSettings.nodeLabels) setScreenNodeLabels([]);
+  }, [layerSettings]);
 
   useEffect(() => {
     followTrafficRef.current = followTraffic;
@@ -1428,8 +1534,10 @@ export default function CanadaMap({
     pendingObserverBurstsRef.current = [];
     if (pulseSchedulerTimerRef.current !== null) window.clearTimeout(pulseSchedulerTimerRef.current);
     if (observerSchedulerTimerRef.current !== null) window.clearTimeout(observerSchedulerTimerRef.current);
+    if (replayActionTimerRef.current !== null) window.clearTimeout(replayActionTimerRef.current);
     pulseSchedulerTimerRef.current = null;
     observerSchedulerTimerRef.current = null;
+    replayActionTimerRef.current = null;
   }, [clearToken]);
 
   useEffect(() => {
@@ -1459,6 +1567,10 @@ export default function CanadaMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapAction) return;
+    if (replayActionTimerRef.current !== null) {
+      window.clearTimeout(replayActionTimerRef.current);
+      replayActionTimerRef.current = null;
+    }
     if (mapAction.type === 'reset') fitToNodes(map, nodesRef.current, 600);
     if (mapAction.type === 'latest-route') {
       const latest = [...routesRef.current].sort((a, b) => b.lastHeard - a.lastHeard)[0];
@@ -1470,6 +1582,23 @@ export default function CanadaMap({
     }
     if (mapAction.type === 'packet') {
       fitToSegments(map, mapAction.segments, 760);
+    }
+    if (mapAction.type === 'packet-replay') {
+      map.stop();
+      animatorRef.current?.clear();
+      updateAnalysisRouteRendering(map, routesRef.current, selectedRouteIDRef.current, nodeFocusRef.current, mapAction.segments, analysisRouteSignatureRef, true);
+      fitToSegments(map, mapAction.segments, 900, true);
+      replayActionTimerRef.current = window.setTimeout(() => {
+        replayActionTimerRef.current = null;
+        if (!layerSettingsRef.current.liveComets) return;
+        animatorRef.current?.add(mapAction.pulse, {
+          force: true,
+          travelDurationMs: mapAction.travelDurationMs,
+          brightness: mapAction.pulse.replayOptions?.brightness,
+          trailScale: mapAction.pulse.replayOptions?.trailScale,
+          animationStyle: mapAction.pulse.replayOptions?.animationStyle
+        });
+      }, 900 + mapAction.settleMs);
     }
     if (mapAction.type === 'node') {
       const node = nodesRef.current.find((item) => item.id === mapAction.nodeID);
@@ -1493,7 +1622,7 @@ export default function CanadaMap({
       <div className="map-vignette" />
       <canvas ref={canvasRef} className="rf-canvas" />
       <div className="node-label-overlay" aria-hidden="true">
-        {screenNodeLabels.map((label) => (
+        {layerSettings.nodeLabels && screenNodeLabels.map((label) => (
           <div
             key={label.id}
             className={`node-screen-label ${label.selected ? 'selected' : ''} ${label.neighbour ? 'neighbor' : ''} ${label.path ? 'path' : ''} ${label.observer ? 'observer' : ''} ${label.recentActive ? 'active' : ''}`}
@@ -1509,7 +1638,7 @@ export default function CanadaMap({
         ))}
       </div>
       <div className="packet-message-overlay" aria-hidden="true">
-        {messageBubbles.map((bubble) => (
+        {layerSettings.messageBubbles && messageBubbles.map((bubble) => (
           <div
             key={bubble.id}
             className="packet-message-bubble"
@@ -1650,6 +1779,12 @@ function addPublicLayers(map: maplibregl.Map) {
       data: emptyCollection() as any
     });
   }
+  if (!map.getSource(ANALYSIS_ROUTE_SOURCE)) {
+    map.addSource(ANALYSIS_ROUTE_SOURCE, {
+      type: 'geojson',
+      data: emptyCollection() as any
+    });
+  }
   if (!map.getSource(ROUTE_PAYLOAD_GLOW_SOURCE)) {
     map.addSource(ROUTE_PAYLOAD_GLOW_SOURCE, {
       type: 'geojson',
@@ -1662,6 +1797,31 @@ function addPublicLayers(map: maplibregl.Map) {
       data: emptyCollection() as any
     });
   }
+
+  addLayerIfMissing(map, {
+    id: ANALYSIS_ROUTE_GLOW_LAYER,
+    type: 'line',
+    source: ANALYSIS_ROUTE_SOURCE,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 2.4, 5, 7, 8, 12, 11],
+      'line-blur': ['interpolate', ['linear'], ['zoom'], 2.4, 4, 10, 7],
+      'line-opacity': ['coalesce', ['get', 'glowOpacity'], 0.24]
+    }
+  });
+
+  addLayerIfMissing(map, {
+    id: ANALYSIS_ROUTE_LAYER,
+    type: 'line',
+    source: ANALYSIS_ROUTE_SOURCE,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 2.4, 2.4, 7, 3.6, 12, 5.2],
+      'line-opacity': ['coalesce', ['get', 'opacity'], 0.86]
+    }
+  });
 
   addLayerIfMissing(map, {
     id: ROUTE_GLOW_LAYER,
@@ -1902,6 +2062,28 @@ function addLayerIfMissing(map: maplibregl.Map, layer: maplibregl.LayerSpecifica
   if (map.getLayer(layer.id)) return;
   if (beforeID && map.getLayer(beforeID)) map.addLayer(layer, beforeID);
   else map.addLayer(layer);
+}
+
+function applyLayerSettings(map: maplibregl.Map, settings: MapLayerSettings) {
+  const clusterLayers = [
+    CLUSTER_LAYER,
+    CLUSTER_COUNT_LAYER,
+    ...CLUSTER_ROLE_BADGES.flatMap((badge) => [`${CLUSTER_ROLE_BADGE_LAYER_PREFIX}-${badge.key}-dot`, `${CLUSTER_ROLE_BADGE_LAYER_PREFIX}-${badge.key}-count`])
+  ];
+  const nodeLayers = [NODE_HALO_LAYER, NODE_LAYER, OBSERVER_LAYER];
+  const routeLayers = [ROUTE_LAYER];
+  const analysisLayers = [ROUTE_GLOW_LAYER, ROUTE_PAYLOAD_GLOW_LAYER, ANALYSIS_ROUTE_GLOW_LAYER, ANALYSIS_ROUTE_LAYER];
+  const observerBurstLayers = [CLUSTER_ACTIVITY_AURA_LAYER, CLUSTER_ACTIVITY_RING_LAYER];
+  for (const layerID of clusterLayers) setLayerVisibility(map, layerID, settings.clusters);
+  for (const layerID of nodeLayers) setLayerVisibility(map, layerID, settings.nodes);
+  for (const layerID of routeLayers) setLayerVisibility(map, layerID, settings.routes);
+  for (const layerID of analysisLayers) setLayerVisibility(map, layerID, settings.analysisPaths);
+  for (const layerID of observerBurstLayers) setLayerVisibility(map, layerID, settings.observerBursts);
+}
+
+function setLayerVisibility(map: maplibregl.Map, layerID: string, visible: boolean) {
+  if (!map.getLayer(layerID)) return;
+  map.setLayoutProperty(layerID, 'visibility', visible ? 'visible' : 'none');
 }
 
 function firstTextSymbolLayerID(map: maplibregl.Map): string | undefined {
@@ -2707,6 +2889,81 @@ function updateRouteRendering(
   }
 }
 
+function updateAnalysisRouteRendering(
+  map: maplibregl.Map,
+  routes: PublicRoute[],
+  selectedRouteID: string | null,
+  focus: NodeFocus,
+  analysisSegments: PublicRoutePulse['segments'],
+  signatureRef: MutableRefObject<string>,
+  force = false
+) {
+  const signature = analysisRouteSignature(routes, selectedRouteID, focus, analysisSegments);
+  if (!force && signature === signatureRef.current) return;
+  signatureRef.current = signature;
+  setSourceData(map, ANALYSIS_ROUTE_SOURCE, analysisRoutesToGeoJSON(routes, selectedRouteID, focus, analysisSegments));
+}
+
+function analysisRouteSignature(routes: PublicRoute[], selectedRouteID: string | null, focus: NodeFocus, analysisSegments: PublicRoutePulse['segments']): string {
+  const routeIDs = new Set<string>([...focus.pathRouteIDs, ...focus.connectedRouteIDs]);
+  if (selectedRouteID) routeIDs.add(selectedRouteID);
+  const matchedRoutes = routes
+    .filter((route) => routeIDs.has(route.id))
+    .map((route) => `${route.id}:${route.from.lat.toFixed(4)},${route.from.lng.toFixed(4)}>${route.to.lat.toFixed(4)},${route.to.lng.toFixed(4)}`)
+    .sort();
+  const segmentSig = analysisSegments
+    .map((segment) => `${segment.routeId}:${segment.from.lat.toFixed(4)},${segment.from.lng.toFixed(4)}>${segment.to.lat.toFixed(4)},${segment.to.lng.toFixed(4)}`)
+    .sort();
+  return `${selectedRouteID ?? ''}|${matchedRoutes.join(';')}|${segmentSig.join(';')}`;
+}
+
+function analysisRoutesToGeoJSON(
+  routes: PublicRoute[],
+  selectedRouteID: string | null,
+  focus: NodeFocus,
+  analysisSegments: PublicRoutePulse['segments']
+): FeatureCollection {
+  const features: Array<Record<string, unknown>> = [];
+  const routeIDs = new Set<string>([...focus.pathRouteIDs, ...focus.connectedRouteIDs]);
+  if (selectedRouteID) routeIDs.add(selectedRouteID);
+  for (const route of routes) {
+    if (!routeIDs.has(route.id)) continue;
+    const path = focus.pathRouteIDs.has(route.id);
+    const selected = route.id === selectedRouteID;
+    const connected = focus.connectedRouteIDs.has(route.id);
+    const color = selected ? '#f8fafc' : path ? '#facc15' : connected ? '#67e8f9' : routeColors[Math.max(0, Math.min(4, route.frequencyBucket))];
+    features.push(lineFeature(route.id, route.from.lng, route.from.lat, route.to.lng, route.to.lat, {
+      color,
+      opacity: selected ? 0.96 : path ? 0.9 : 0.72,
+      glowOpacity: selected ? 0.34 : path ? 0.28 : 0.18
+    }));
+  }
+  for (const [index, segment] of analysisSegments.entries()) {
+    if (!isMappableEndpoint(segment.from) || !isMappableEndpoint(segment.to)) continue;
+    features.push(lineFeature(`packet-${segment.routeId}-${index}`, segment.from.lng, segment.from.lat, segment.to.lng, segment.to.lat, {
+      color: '#facc15',
+      opacity: 0.94,
+      glowOpacity: 0.32
+    }));
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+function lineFeature(id: string, fromLng: number, fromLat: number, toLng: number, toLat: number, properties: Record<string, unknown>) {
+  return {
+    type: 'Feature',
+    id,
+    properties: { id, ...properties },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [fromLng, fromLat],
+        [toLng, toLat]
+      ]
+    }
+  };
+}
+
 interface SourceUpdateQueue {
   frame: number;
   pending: Map<string, FeatureCollection>;
@@ -2760,7 +3017,7 @@ function fitToRoute(map: maplibregl.Map, route: PublicRoute, duration: number) {
   map.fitBounds(bounds, { padding: 120, maxZoom: 10.5, duration });
 }
 
-function fitToSegments(map: maplibregl.Map, segments: PublicRoutePulse['segments'], duration: number) {
+function fitToSegments(map: maplibregl.Map, segments: PublicRoutePulse['segments'], duration: number, overview = false) {
   const points = segments.flatMap((segment) => [
     [segment.from.lng, segment.from.lat] as [number, number],
     [segment.to.lng, segment.to.lat] as [number, number]
@@ -2771,7 +3028,16 @@ function fitToSegments(map: maplibregl.Map, segments: PublicRoutePulse['segments
     return;
   }
   const bounds = points.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(points[0], points[0]));
-  map.fitBounds(bounds, { padding: followTrafficPadding(map), maxZoom: 10.8, duration, easing: easeOutCubic });
+  map.fitBounds(bounds, { padding: overview ? overviewRoutePadding(map) : followTrafficPadding(map), maxZoom: overview ? 8.8 : 10.8, duration, easing: easeOutCubic });
+}
+
+function overviewRoutePadding(map: maplibregl.Map): maplibregl.PaddingOptions {
+  const { width, height } = mapViewportSize(map);
+  const compact = width < 720 || height < 560;
+  if (compact) {
+    return { top: 86, right: 38, bottom: 116, left: 38 };
+  }
+  return { top: 132, right: 132, bottom: 150, left: 132 };
 }
 
 function followTrafficPulse(

@@ -98,7 +98,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.4.1 exposes the app version/build in the top project bar. CI builds use
+- Version 2.4.5 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -146,7 +146,8 @@ or observer record.
 - Route glow, cluster role badges, hover-only ordinary labels, the VCR playback
   surface, live pulse clock, and the Original/OpenFreeMap map toggle use only sanitized public state,
   WebSocket events, and public history endpoints.
-- Dark/light mode, palette choice, VCR open state, and panel visibility are
+- Dark/light mode, palette choice, VCR open state, Packets panel mode, Map
+  Settings layer/packet visuals, and panel visibility are
   browser-local UI preferences. They do not require database or API migrations.
 
 ## Production Readiness Checklist

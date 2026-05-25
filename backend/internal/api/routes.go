@@ -639,6 +639,7 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 	if limit > publicPacketsMaxLimit {
 		limit = publicPacketsMaxLimit
 	}
+	filters := publicPacketFiltersFromRequest(r)
 	cursor, err := decodeHistoryCursor(r.URL.Query().Get("cursor"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -683,6 +684,9 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				continue
 			}
+			if !publicPacketMatchesFilters(packet, filters) {
+				continue
+			}
 			packets = append(packets, packet)
 			if len(packets) >= limit {
 				break
@@ -708,6 +712,77 @@ func (s *Server) publicPackets(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	failed = false
+}
+
+type publicPacketFilters struct {
+	iata        string
+	payload     string
+	minHops     int
+	messageOnly bool
+	query       string
+}
+
+func publicPacketFiltersFromRequest(r *http.Request) publicPacketFilters {
+	query := r.URL.Query()
+	return publicPacketFilters{
+		iata:        strings.ToUpper(strings.TrimSpace(query.Get("iata"))),
+		payload:     strings.ToUpper(strings.TrimSpace(query.Get("payload"))),
+		minHops:     maxInt(0, queryInt(r, "minHops", 0)),
+		messageOnly: queryBool(query.Get("messageOnly")),
+		query:       strings.ToLower(trimBounded(query.Get("q"), 120)),
+	}
+}
+
+func publicPacketMatchesFilters(packet live.PublicPacketPath, filters publicPacketFilters) bool {
+	if filters.iata != "" && strings.ToUpper(packet.IATA) != filters.iata {
+		return false
+	}
+	if filters.payload != "" && strings.ToUpper(packet.PayloadTypeName) != filters.payload {
+		return false
+	}
+	if filters.minHops > 0 && packet.HopCount < filters.minHops {
+		return false
+	}
+	if filters.messageOnly && strings.TrimSpace(packet.MessageText) == "" {
+		return false
+	}
+	if filters.query == "" {
+		return true
+	}
+	for _, field := range publicPacketSearchFields(packet) {
+		if strings.Contains(strings.ToLower(field), filters.query) {
+			return true
+		}
+	}
+	return false
+}
+
+func publicPacketSearchFields(packet live.PublicPacketPath) []string {
+	fields := []string{
+		packet.ID,
+		packet.IATA,
+		packet.PayloadTypeName,
+		packet.MessageSender,
+		packet.MessageText,
+	}
+	fields = append(fields, packet.RouteIDs...)
+	fields = append(fields, packet.EndpointLabels...)
+	for _, segment := range packet.Segments {
+		fields = append(fields,
+			segment.RouteID,
+			segment.From.Label,
+			segment.From.PathHash3,
+			segment.To.Label,
+			segment.To.PathHash3,
+		)
+	}
+	out := fields[:0]
+	for _, field := range fields {
+		if strings.TrimSpace(field) != "" {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 
 func (s *Server) publicLocationIndexes(ctx context.Context) (live.PublicObserverLocationIndex, map[string]string, error) {
@@ -1058,6 +1133,30 @@ func queryInt64(r *http.Request, key string, fallback int64) int64 {
 		}
 	}
 	return fallback
+}
+
+func queryBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func trimBounded(value string, maxLen int) string {
+	value = strings.TrimSpace(value)
+	if maxLen > 0 && len(value) > maxLen {
+		return value[:maxLen]
+	}
+	return value
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

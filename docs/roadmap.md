@@ -80,28 +80,47 @@ missing-data investigations should be easy to run from the production host.
 - Include filters for time window, IATA, payload type, minimum hops, and message
   payloads only when backed by sanitized public route events.
 
-## 2.4.2 - Packet Explainability Diagnostics
+## 2.4.2 - Packet Replay And Long-Route Visibility
 
-- Extend local operator diagnostics so a packet can be explained as included,
-  skipped for missing route segments, filtered by public IATA, invalid for map,
-  stale/future-dated, or private-only.
-- Keep these explanations local-only through scripts or `mc-diagnose`; do not
-  add an unauthenticated public debug endpoint.
+- Rework Packets replay into a deliberate analysis flow: compact the Packets
+  panel, pause live packet flow, stop competing map motion, fit the full true
+  route path, wait briefly, and then force a single cinematic packet comet.
+- Keep selected packet, Plot Routes, phonebook, and packet analysis paths visible
+  at low zoom through a highlighted overview layer without exposing every idle
+  route across Canada.
+- Render packet replay paths from exact public-safe packet segments so analysis
+  still works when the main route source is stale.
 
-## 2.4.3 - Packets Page Performance And Mobile Polish
+## 2.4.3 - Map Settings Drawer And Layer Toggles
 
-- Virtualize or window the packet list if needed, cap fetch sizes, and keep map
-  source updates stable when the Packets tab is open.
-- Make the page readable on 390px mobile without blocking the live map controls,
-  VCR handle, or bottom-right live clock.
+- Add a persistent Map Settings drawer with layer controls for clusters, nodes,
+  node labels, known routes, highlighted analysis paths, live packet comets,
+  packet residue, observer bursts, and message bubbles.
+- Persist settings in `mc-cartolive-map-settings`.
+- Apply layer visibility through MapLibre layout visibility or canvas settings
+  where possible so UI toggles do not rebuild node or route GeoJSON.
 
-## 2.4.4 - Production Gate
+## 2.4.4 - Packet Comet Customization
 
+- Add live packet visual controls for speed, brightness, trail length, and
+  animation style (`Comet`, `Pulse`, `Minimal`).
+- Apply those settings to live comets, forced packet replay, route residue, and
+  observer burst brightness where relevant.
+- Keep forced packet replay cinematic by default while respecting the global
+  packet speed slider.
+
+## 2.4.5 - Packets Page Production Tooling
+
+- Expand `/api/v1/public/packets` with additive public-safe filters: `iata`,
+  `payload`, `minHops`, `messageOnly`, and `q`.
+- Keep the response shape compatible, cap server page size at 1000, and use
+  server-backed filtering across the public-safe 24h window.
+- Replace the row list with a windowed packet list and add richer packet detail:
+  endpoint summary, hop/segment count, distance, payload, IATA, heard time,
+  public-safe message preview, segment list, focus, replay, and copy route IDs.
 - Verify backend tests, frontend tests/build, Docker build, live smoke,
   `/api/v1/public/packets`, VCR replay, WebSocket, desktop browser, and mobile
   browser checks before tagging.
-- Run privacy regression checks against public state, history, packets,
-  summary, WebSocket, health, and readiness responses.
 
 ## Non-Goals
 

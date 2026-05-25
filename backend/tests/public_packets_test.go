@@ -134,6 +134,108 @@ func TestPublicPacketsEndpointReturnsNewestFirstWithStableCursorPagination(t *te
 	}
 }
 
+func TestPublicPacketsEndpointFiltersAcrossSanitizedPacketFields(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("close store: %v", err)
+		}
+	})
+
+	observerKey := "AA00000000000000000000000000000000000000000000000000000000000000"
+	base := time.Now().Add(-time.Hour).UnixMilli()
+	txtID := insertHistoryObservation(t, ctx, st, "hash-filter-text-private", "YKF", observerKey, base+1_000, resolve.StatusHigh)
+	insertHistoryEdgeWithOptions(t, ctx, st, txtID, "hash-filter-text-private", base+1_000, historyEdgeOptions{
+		PayloadTypeName: "PLAIN_TEXT",
+		MessageSender:   "Corebot",
+		MessageText:     "hello from YKF",
+		Labels:          []string{"YKF Corebot", "Krabs Repeater", "Room Observer"},
+	})
+	advID := insertHistoryObservation(t, ctx, st, "hash-filter-adv-private", "YTR", observerKey, base+2_000, resolve.StatusHigh)
+	insertHistoryEdgeWithOptions(t, ctx, st, advID, "hash-filter-adv-private", base+2_000, historyEdgeOptions{
+		PayloadTypeName: "ADVERT",
+		Labels:          []string{"YTR Sender", "YTR Repeater"},
+	})
+
+	server := publicHistoryTestServer(st, func(string) bool { return true })
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"iata", "/api/v1/public/packets?from=" + ms(base) + "&to=" + ms(base+3_000) + "&iata=ykf&limit=10", "YKF"},
+		{"payload", "/api/v1/public/packets?from=" + ms(base) + "&to=" + ms(base+3_000) + "&payload=advert&limit=10", "YTR"},
+		{"minimum hops", "/api/v1/public/packets?from=" + ms(base) + "&to=" + ms(base+3_000) + "&minHops=2&limit=10", "YKF"},
+		{"message only", "/api/v1/public/packets?from=" + ms(base) + "&to=" + ms(base+3_000) + "&messageOnly=true&limit=10", "YKF"},
+		{"public query", "/api/v1/public/packets?from=" + ms(base) + "&to=" + ms(base+3_000) + "&q=krabs&limit=10", "YKF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			server.Routes().ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				t.Fatalf("packets status = %d body=%s", response.Code, response.Body.String())
+			}
+			var packets live.PublicPacketsResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &packets); err != nil {
+				t.Fatal(err)
+			}
+			if len(packets.Packets) != 1 || packets.Packets[0].IATA != tt.want {
+				t.Fatalf("packets = %#v, want single %s match", packets.Packets, tt.want)
+			}
+			raw := response.Body.String()
+			if strings.Contains(raw, "hash-filter") || strings.Contains(raw, "private resolver reason") {
+				t.Fatalf("filtered response leaked private data: %s", raw)
+			}
+		})
+	}
+}
+
+type historyEdgeOptions struct {
+	PayloadTypeName string
+	MessageSender   string
+	MessageText     string
+	Labels          []string
+}
+
+func insertHistoryEdgeWithOptions(t *testing.T, ctx context.Context, st *store.Store, observationID int64, hash string, heardAt int64, options historyEdgeOptions) {
+	t.Helper()
+	payload := options.PayloadTypeName
+	if payload == "" {
+		payload = "PLAIN_TEXT"
+	}
+	labels := options.Labels
+	if len(labels) < 2 {
+		labels = []string{"Sender", "Repeater"}
+	}
+	segments := make([]live.EdgeSegment, 0, len(labels)-1)
+	for index := 0; index < len(labels)-1; index++ {
+		segments = append(segments, live.EdgeSegment{
+			From:       live.EdgeEndpoint{NodeID: "node-" + ms(int64(index)), Name: labels[index], Lat: 43.65 + float64(index)*0.15, Lng: -79.38 - float64(index)*0.12},
+			To:         live.EdgeEndpoint{NodeID: "node-" + ms(int64(index+1)), Name: labels[index+1], Lat: 43.65 + float64(index+1)*0.15, Lng: -79.38 - float64(index+1)*0.12},
+			DistanceKM: 18 + float64(index)*6,
+		})
+	}
+	if _, err := st.InsertEdgeEvent(ctx, live.EdgeEvent{
+		PacketHash:      hash,
+		ObservationID:   observationID,
+		PayloadType:     2,
+		PayloadTypeName: payload,
+		MessageSender:   options.MessageSender,
+		MessageText:     options.MessageText,
+		HeardAt:         heardAt,
+		Segments:        segments,
+		RenderReason:    "resolved_path_high_confidence",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func insertInvalidHistoryEdge(t *testing.T, ctx context.Context, st *store.Store, observationID int64, hash string, heardAt int64) {
 	t.Helper()
 	if _, err := st.InsertEdgeEvent(ctx, live.EdgeEvent{

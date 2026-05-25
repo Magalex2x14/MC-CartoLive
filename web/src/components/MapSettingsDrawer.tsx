@@ -1,0 +1,128 @@
+import { RotateCcw, SlidersHorizontal, X } from 'lucide-react';
+import {
+  DEFAULT_MAP_SETTINGS,
+  normalizeMapSettings,
+  type MapLayerSettings,
+  type MapSettings,
+  type PacketAnimationStyle
+} from '../mapSettings';
+
+interface MapSettingsDrawerProps {
+  settings: MapSettings;
+  onChange: (settings: MapSettings) => void;
+  onClose: () => void;
+}
+
+const LAYER_CONTROLS: readonly { key: keyof MapLayerSettings; label: string; hint: string }[] = [
+  { key: 'clusters', label: 'Clusters', hint: 'Grouped low-zoom node bubbles' },
+  { key: 'nodes', label: 'Nodes', hint: 'Individual public nodes and observers' },
+  { key: 'nodeLabels', label: 'Node labels', hint: 'Projected map labels' },
+  { key: 'routes', label: 'Known pathways', hint: 'Idle public route lines' },
+  { key: 'analysisPaths', label: 'Analysis paths', hint: 'Selected packets, Plot Routes, phonebook paths' },
+  { key: 'liveComets', label: 'Live packet comets', hint: 'Live packet flight animations only' },
+  { key: 'packetResidue', label: 'Packet trails', hint: 'Recent route glow residue' },
+  { key: 'observerBursts', label: 'Observer bursts', hint: 'Observer-only packet pings' },
+  { key: 'messageBubbles', label: 'Message bubbles', hint: 'Public-safe decoded text overlays' }
+];
+
+const ANIMATION_STYLES: readonly { value: PacketAnimationStyle; label: string }[] = [
+  { value: 'comet', label: 'Comet' },
+  { value: 'pulse', label: 'Pulse' },
+  { value: 'minimal', label: 'Minimal' }
+];
+
+export default function MapSettingsDrawer({ settings, onChange, onClose }: MapSettingsDrawerProps) {
+  const updateLayer = (key: keyof MapLayerSettings, value: boolean) => {
+    onChange(normalizeMapSettings({ ...settings, layers: { ...settings.layers, [key]: value } }));
+  };
+  const updatePacket = (key: keyof MapSettings['packets'], value: number | PacketAnimationStyle) => {
+    onChange(normalizeMapSettings({ ...settings, packets: { ...settings.packets, [key]: value } }));
+  };
+  return (
+    <aside className="map-settings-drawer" aria-label="Map settings">
+      <header className="map-settings-header">
+        <div>
+          <span className="panel-eyebrow">Map</span>
+          <h2>Settings</h2>
+        </div>
+        <button type="button" className="icon-button" title="Close map settings" onClick={onClose}>
+          <X size={17} />
+        </button>
+      </header>
+
+      <section className="map-settings-section">
+        <h3>Layers</h3>
+        <div className="map-settings-toggle-list">
+          {LAYER_CONTROLS.map((control) => (
+            <label key={control.key} className="map-settings-toggle">
+              <span>
+                <strong>{control.label}</strong>
+                <small>{control.hint}</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.layers[control.key]}
+                onChange={(event) => updateLayer(control.key, event.target.checked)}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="map-settings-section">
+        <h3>Live Packet Style</h3>
+        <Slider label="Speed" value={settings.packets.speed} min={0.5} max={3} step={0.1} suffix="x" onChange={(value) => updatePacket('speed', value)} />
+        <Slider label="Brightness" value={settings.packets.brightness} min={0.4} max={1.6} step={0.05} suffix="x" onChange={(value) => updatePacket('brightness', value)} />
+        <Slider label="Trail" value={settings.packets.trail} min={0} max={2} step={0.05} suffix="x" onChange={(value) => updatePacket('trail', value)} />
+        <div className="map-settings-segmented" role="group" aria-label="Packet animation type">
+          {ANIMATION_STYLES.map((style) => (
+            <button
+              key={style.value}
+              type="button"
+              className={settings.packets.animationStyle === style.value ? 'active' : ''}
+              onClick={() => updatePacket('animationStyle', style.value)}
+            >
+              {style.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <footer className="map-settings-footer">
+        <button type="button" onClick={() => onChange(DEFAULT_MAP_SETTINGS)}>
+          <RotateCcw size={15} />
+          Reset visual settings
+        </button>
+        <span><SlidersHorizontal size={14} /> local browser preference</span>
+      </footer>
+    </aside>
+  );
+}
+
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  suffix,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  suffix: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="map-settings-slider">
+      <span>
+        <strong>{label}</strong>
+        <em>{value.toFixed(value < 1 ? 2 : 1)}{suffix}</em>
+      </span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    </label>
+  );
+}

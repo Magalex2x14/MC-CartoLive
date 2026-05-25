@@ -49,7 +49,7 @@ export function filterPackets(packets: PublicPacketPath[], filters: PacketFilter
   return packets.filter((packet) => packetMatchesFilters(packet, filters));
 }
 
-export function packetToPulse(packet: PublicPacketPath, now = Date.now()): PublicRoutePulse {
+export function packetToPulse(packet: PublicPacketPath, now = Date.now(), replayOptions?: PublicRoutePulse['replayOptions']): PublicRoutePulse {
   return {
     id: `${packet.id}-replay-${now}`,
     iata: packet.iata,
@@ -59,7 +59,8 @@ export function packetToPulse(packet: PublicPacketPath, now = Date.now()): Publi
     heardAt: packet.at,
     receivedAt: now,
     displayAt: now,
-    segments: packet.segments
+    segments: packet.segments,
+    replayOptions
   };
 }
 

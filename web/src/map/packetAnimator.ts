@@ -1,5 +1,14 @@
 import type maplibregl from 'maplibre-gl';
 import type { PublicObserverBurst, PublicRoutePulse } from '../types';
+import {
+  DEFAULT_MAP_LAYER_SETTINGS,
+  DEFAULT_PACKET_VISUAL_SETTINGS,
+  normalizeLayerSettings,
+  normalizePacketVisualSettings,
+  type MapLayerSettings,
+  type PacketAnimationStyle,
+  type PacketVisualSettings
+} from '../mapSettings';
 import { payloadVisual } from '../payloadVisuals';
 import { recordPacketFrame, recordPacketSkippedFrame } from '../perfDiagnostics';
 import { isMappableEndpoint } from './geo';
@@ -31,6 +40,10 @@ interface ActivePulse {
   started: number;
   travelDuration: number;
   afterglowDuration: number;
+  brightness: number;
+  trailScale: number;
+  animationStyle: PacketAnimationStyle;
+  force: boolean;
 }
 
 interface TraceHit {
@@ -55,6 +68,7 @@ interface ActiveObserverBurst {
   started: number;
   duration: number;
   afterglowDuration: number;
+  brightness: number;
 }
 
 interface ObserverBurstHit {
@@ -74,6 +88,16 @@ interface ObserverBurstAggregate {
 
 interface PacketAnimatorOptions {
   maskLayerIDs?: string[];
+  layerSettings?: MapLayerSettings;
+  visualSettings?: PacketVisualSettings;
+}
+
+export interface PacketAnimationOptions {
+  force?: boolean;
+  travelDurationMs?: number;
+  brightness?: number;
+  trailScale?: number;
+  animationStyle?: PacketAnimationStyle;
 }
 
 interface RenderedPointFeature {
@@ -128,6 +152,8 @@ export class PacketAnimator {
   private maskFeatures: RenderedPointFeature[] = [];
   private nextMaskRefreshAt = 0;
   private observerBurstLastAtByLocation = new Map<string, number>();
+  private layerSettings = DEFAULT_MAP_LAYER_SETTINGS;
+  private visualSettings = DEFAULT_PACKET_VISUAL_SETTINGS;
   private handleMapMotion = () => {
     this.forceNextFrame = true;
     this.requestFrame();
@@ -139,6 +165,8 @@ export class PacketAnimator {
     this.ctx = ctx;
     this.map = map;
     this.maskLayerIDs = options.maskLayerIDs ?? [];
+    this.layerSettings = normalizeLayerSettings(options.layerSettings);
+    this.visualSettings = normalizePacketVisualSettings(options.visualSettings);
     this.frame = this.frame.bind(this);
     this.resize();
     this.map.on('move', this.handleMapMotion);
@@ -191,12 +219,29 @@ export class PacketAnimator {
     this.routeColors = colors;
   }
 
-  add(pulse: PublicRoutePulse) {
-    if (this.paused || pulse.segments.length === 0) return;
+  setVisualSettings(settings: PacketVisualSettings) {
+    this.visualSettings = normalizePacketVisualSettings(settings);
+    this.forceNextFrame = true;
+    this.requestFrame();
+  }
+
+  setLayerSettings(settings: MapLayerSettings) {
+    this.layerSettings = normalizeLayerSettings(settings);
+    this.forceNextFrame = true;
+    if (!this.layerSettings.liveComets) this.pulses = [];
+    this.requestFrame();
+  }
+
+  add(pulse: PublicRoutePulse, options: PacketAnimationOptions = {}) {
+    const pulseOptions = { ...pulse.replayOptions, ...options };
+    if ((this.paused && !pulseOptions.force) || pulse.segments.length === 0) return;
     const validSegments = pulse.segments.filter((segment) => isMappableEndpoint(segment.from) && isMappableEndpoint(segment.to));
     if (validSegments.length === 0) return;
     const now = performance.now();
     const color = payloadVisual(pulse.payloadTypeName).color;
+    const brightness = clampRange(pulseOptions.brightness ?? this.visualSettings.brightness, 0.25, 2);
+    const trailScale = clampRange(pulseOptions.trailScale ?? this.visualSettings.trail, 0, 2.5);
+    const animationStyle = pulseOptions.animationStyle ?? this.visualSettings.animationStyle;
     for (const segment of validSegments) {
       this.traceHits.push({
         routeId: segment.routeId,
@@ -213,8 +258,12 @@ export class PacketAnimator {
       segments: validSegments,
       color,
       started: now,
-      travelDuration: packetTravelDuration(validSegments.length),
-      afterglowDuration: PACKET_AFTERGLOW_MS
+      travelDuration: clampDuration(pulseOptions.travelDurationMs ?? packetTravelDuration(validSegments.length, this.visualSettings.speed)),
+      afterglowDuration: PACKET_AFTERGLOW_MS * Math.max(0.2, trailScale),
+      brightness,
+      trailScale,
+      animationStyle,
+      force: pulseOptions.force === true
     });
     this.pulses = this.pulses.slice(-240);
     this.requestFrame();
@@ -247,7 +296,8 @@ export class PacketAnimator {
       burst,
       started: now,
       duration: OBSERVER_BURST_DURATION_MS,
-      afterglowDuration: OBSERVER_BURST_AFTERGLOW_MS
+      afterglowDuration: OBSERVER_BURST_AFTERGLOW_MS,
+      brightness: this.visualSettings.brightness
     });
     this.observerBursts = this.observerBursts.slice(-MAX_ACTIVE_OBSERVER_BURSTS);
     this.requestFrame();
@@ -282,7 +332,7 @@ export class PacketAnimator {
   private frame(now: number) {
     const frameStart = performance.now();
     this.raf = 0;
-    if (this.paused) {
+    if (this.paused && !this.pulses.some((pulse) => pulse.force)) {
       recordPacketSkippedFrame();
       return;
     }
@@ -367,18 +417,18 @@ export class PacketAnimator {
       const shimmer = 0.5 + 0.5 * Math.sin(now / 92 + index * 1.7);
 
       if (elapsed > active.travelDuration) {
-        this.drawAfterglowSegment(from.x, from.y, to.x, to.y, color, afterglowAlpha, shimmer);
+        this.drawAfterglowSegment(from.x, from.y, to.x, to.y, color, afterglowAlpha, shimmer, active.brightness, active.trailScale, active.animationStyle);
         continue;
       }
 
       if (index < segmentState.segmentIndex) {
-        this.drawCompletedSegment(from.x, from.y, to.x, to.y, color, 1 - travelProgress);
+        this.drawCompletedSegment(from.x, from.y, to.x, to.y, color, 1 - travelProgress, active.brightness, active.animationStyle);
         continue;
       }
 
       if (index === segmentState.segmentIndex) {
-        this.drawCometSegment(from.x, from.y, to.x, to.y, color, segmentState.localProgress, shimmer);
-        if (segmentState.localProgress < 0.32) {
+        this.drawCometSegment(from.x, from.y, to.x, to.y, color, segmentState.localProgress, shimmer, active.brightness, active.trailScale, active.animationStyle);
+        if (active.animationStyle !== 'minimal' && segmentState.localProgress < 0.32) {
           relayOverlays.push({
             x: from.x,
             y: from.y,
@@ -388,7 +438,7 @@ export class PacketAnimator {
             mode: 'launch'
           });
         }
-        if (segmentState.localProgress > 0.62) {
+        if (active.animationStyle !== 'minimal' && segmentState.localProgress > 0.62) {
           relayOverlays.push({
             x: to.x,
             y: to.y,
@@ -404,6 +454,7 @@ export class PacketAnimator {
   }
 
   private drawTraceAura(now: number) {
+    if (!this.layerSettings.packetResidue || this.visualSettings.trail <= 0) return;
     const aggregates = this.traceAggregatesForFrame();
     this.ctx.save();
     this.ctx.lineCap = 'round';
@@ -414,7 +465,7 @@ export class PacketAnimator {
       const intensity = Math.min(1, Math.log1p(trace.count) / Math.log1p(18));
       const from = this.map.project([trace.from.lng, trace.from.lat]);
       const to = this.map.project([trace.to.lng, trace.to.lat]);
-      const alpha = routeResidueAlpha(trace.count, fade);
+      const alpha = routeResidueAlpha(trace.count, fade) * this.visualSettings.brightness * this.visualSettings.trail;
       if (alpha <= 0.002) continue;
 
       this.ctx.globalAlpha = alpha * 0.44;
@@ -463,7 +514,7 @@ export class PacketAnimator {
       const intensity = Math.min(1, Math.log1p(burst.count) / Math.log1p(24));
       const point = this.map.project([burst.location.lng, burst.location.lat]);
       const radius = 15 + intensity * 38;
-      const alpha = observerAuraAlpha(burst.count, fade);
+      const alpha = observerAuraAlpha(burst.count, fade) * this.visualSettings.brightness;
       const gradient = this.ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
       gradient.addColorStop(0, colorWithAlpha(burst.color, alpha));
       gradient.addColorStop(0.42, colorWithAlpha(burst.color, alpha * 0.42));
@@ -495,7 +546,7 @@ export class PacketAnimator {
     const afterglowProgress = Math.max(0, Math.min(1, (elapsed - active.duration) / active.afterglowDuration));
     const color = payloadVisual(active.burst.payloadTypeName).color;
     const point = this.map.project([active.burst.location.lng, active.burst.location.lat]);
-    const alpha = elapsed > active.duration ? 0.14 * (1 - afterglowProgress) : 0.34;
+    const alpha = (elapsed > active.duration ? 0.14 * (1 - afterglowProgress) : 0.34) * active.brightness;
     if (alpha <= 0.01) return;
 
     this.ctx.save();
@@ -548,11 +599,11 @@ export class PacketAnimator {
     });
   }
 
-  private drawCompletedSegment(x0: number, y0: number, x1: number, y1: number, color: string, fade: number) {
-    this.ctx.globalAlpha = Math.max(0.08, fade * 0.26);
+  private drawCompletedSegment(x0: number, y0: number, x1: number, y1: number, color: string, fade: number, brightness: number, style: PacketAnimationStyle) {
+    this.ctx.globalAlpha = Math.max(0.06, fade * (style === 'minimal' ? 0.14 : 0.26) * brightness);
     this.ctx.strokeStyle = color;
-    this.ctx.lineWidth = 3;
-    this.ctx.shadowBlur = 16;
+    this.ctx.lineWidth = style === 'minimal' ? 2 : 3;
+    this.ctx.shadowBlur = style === 'minimal' ? 7 : 16;
     this.ctx.shadowColor = color;
     this.ctx.beginPath();
     this.ctx.moveTo(x0, y0);
@@ -561,11 +612,12 @@ export class PacketAnimator {
     this.ctx.shadowBlur = 0;
   }
 
-  private drawAfterglowSegment(x0: number, y0: number, x1: number, y1: number, color: string, alpha: number, shimmer: number) {
-    this.ctx.globalAlpha = alpha * (0.13 + shimmer * 0.13);
+  private drawAfterglowSegment(x0: number, y0: number, x1: number, y1: number, color: string, alpha: number, shimmer: number, brightness: number, trailScale: number, style: PacketAnimationStyle) {
+    const styleScale = style === 'minimal' ? 0.45 : style === 'pulse' ? 0.72 : 1;
+    this.ctx.globalAlpha = alpha * (0.13 + shimmer * 0.13) * brightness * trailScale * styleScale;
     this.ctx.strokeStyle = color;
-    this.ctx.lineWidth = 2.8 + shimmer * 1.6;
-    this.ctx.shadowBlur = 16 + shimmer * 24;
+    this.ctx.lineWidth = (2.8 + shimmer * 1.6) * (style === 'minimal' ? 0.72 : 1);
+    this.ctx.shadowBlur = (16 + shimmer * 24) * styleScale;
     this.ctx.shadowColor = color;
     this.ctx.beginPath();
     this.ctx.moveTo(x0, y0);
@@ -574,10 +626,11 @@ export class PacketAnimator {
     this.ctx.shadowBlur = 0;
   }
 
-  private drawCometSegment(x0: number, y0: number, x1: number, y1: number, color: string, progress: number, shimmer: number) {
+  private drawCometSegment(x0: number, y0: number, x1: number, y1: number, color: string, progress: number, shimmer: number, brightness: number, trailScale: number, style: PacketAnimationStyle) {
     const head = pointAlongSegment(x0, y0, x1, y1, progress);
-    const tail = pointAlongSegment(x0, y0, x1, y1, Math.max(0, progress - 0.068));
-    const tail2 = pointAlongSegment(x0, y0, x1, y1, Math.max(0, progress - 0.16));
+    const tailFactor = style === 'minimal' ? 0.42 : style === 'pulse' ? 0.68 : 1;
+    const tail = pointAlongSegment(x0, y0, x1, y1, Math.max(0, progress - 0.068 * trailScale * tailFactor));
+    const tail2 = pointAlongSegment(x0, y0, x1, y1, Math.max(0, progress - 0.16 * trailScale * tailFactor));
     const gradient = this.ctx.createLinearGradient(tail.x, tail.y, head.x, head.y);
     gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
     gradient.addColorStop(0.28, colorWithAlpha(color, 0.56));
@@ -589,27 +642,27 @@ export class PacketAnimator {
     bloom.addColorStop(0.48, colorWithAlpha(color, 0.32));
     bloom.addColorStop(1, colorWithAlpha(color, 0.88));
 
-    this.ctx.globalAlpha = 0.28 + shimmer * 0.12;
+    this.ctx.globalAlpha = (0.28 + shimmer * 0.12) * brightness * (style === 'minimal' ? 0.38 : 1);
     this.ctx.strokeStyle = bloom;
-    this.ctx.lineWidth = 10 + shimmer * 5;
-    this.ctx.shadowBlur = 34 + shimmer * 30;
+    this.ctx.lineWidth = (10 + shimmer * 5) * (style === 'minimal' ? 0.42 : style === 'pulse' ? 0.72 : 1);
+    this.ctx.shadowBlur = (34 + shimmer * 30) * (style === 'minimal' ? 0.38 : 1);
     this.ctx.shadowColor = color;
     this.ctx.beginPath();
     this.ctx.moveTo(tail2.x, tail2.y);
     this.ctx.lineTo(head.x, head.y);
     this.ctx.stroke();
 
-    this.ctx.globalAlpha = 0.92 + shimmer * 0.08;
+    this.ctx.globalAlpha = (0.92 + shimmer * 0.08) * brightness;
     this.ctx.strokeStyle = gradient;
-    this.ctx.lineWidth = 3.8 + shimmer * 1.6;
-    this.ctx.shadowBlur = 24 + shimmer * 30;
+    this.ctx.lineWidth = (3.8 + shimmer * 1.6) * (style === 'minimal' ? 0.7 : 1);
+    this.ctx.shadowBlur = (24 + shimmer * 30) * (style === 'minimal' ? 0.5 : 1);
     this.ctx.shadowColor = color;
     this.ctx.beginPath();
     this.ctx.moveTo(tail.x, tail.y);
     this.ctx.lineTo(head.x, head.y);
     this.ctx.stroke();
 
-    this.ctx.globalAlpha = 0.74;
+    this.ctx.globalAlpha = 0.74 * brightness;
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 1.15;
     this.ctx.shadowBlur = 14 + shimmer * 12;
@@ -619,19 +672,20 @@ export class PacketAnimator {
     this.ctx.lineTo(head.x, head.y);
     this.ctx.stroke();
 
-    this.ctx.globalAlpha = 1;
+    this.ctx.globalAlpha = Math.min(1, brightness);
     this.ctx.fillStyle = '#ffffff';
     this.ctx.shadowBlur = 26 + shimmer * 28;
     this.ctx.shadowColor = color;
     this.ctx.beginPath();
-    this.ctx.arc(head.x, head.y, 3.8 + shimmer * 1.4, 0, Math.PI * 2);
+    this.ctx.arc(head.x, head.y, (style === 'minimal' ? 2.9 : 3.8) + shimmer * 1.4, 0, Math.PI * 2);
     this.ctx.fill();
     this.ctx.globalAlpha = 0.86;
     this.ctx.fillStyle = color;
     this.ctx.beginPath();
     this.ctx.arc(head.x, head.y, 1.9, 0, Math.PI * 2);
     this.ctx.fill();
-    this.drawCometSparks(head.x, head.y, x0, y0, x1, y1, color, shimmer, progress);
+    if (style !== 'minimal') this.drawCometSparks(head.x, head.y, x0, y0, x1, y1, color, shimmer, progress);
+    if (style === 'pulse') this.endpointPulse(head.x, head.y, 0.35 + shimmer * 0.18, color, 0.32 * brightness);
     this.ctx.shadowBlur = 0;
   }
 
@@ -834,9 +888,12 @@ export class PacketAnimator {
   }
 }
 
-export function packetTravelDuration(segmentCount: number): number {
-  if (segmentCount <= 1) return PACKET_SINGLE_HOP_DURATION_MS;
-  return Math.min(PACKET_MAX_TRAVEL_DURATION_MS, PACKET_SINGLE_HOP_DURATION_MS + (segmentCount - 1) * 550);
+export function packetTravelDuration(segmentCount: number, speed = 1): number {
+  const clampedSpeed = clampRange(speed, 0.5, 3);
+  const base = segmentCount <= 1
+    ? PACKET_SINGLE_HOP_DURATION_MS
+    : Math.min(PACKET_MAX_TRAVEL_DURATION_MS, PACKET_SINGLE_HOP_DURATION_MS + (segmentCount - 1) * 550);
+  return Math.round(base / clampedSpeed);
 }
 
 export function sequentialSegmentProgress(progress: number, segmentCount: number): { segmentIndex: number; localProgress: number } {
@@ -992,4 +1049,14 @@ function colorWithAlpha(color: string, alpha: number): string {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function clampRange(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function clampDuration(value: number): number {
+  if (!Number.isFinite(value)) return PACKET_SINGLE_HOP_DURATION_MS;
+  return Math.max(500, Math.min(12_000, Math.round(value)));
 }

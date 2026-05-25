@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 2.4.5 - 2026-05-24
+
+- Reworked Packets replay into a cinematic analysis flow: replay compacts the Packets panel, pauses live packet flow, fits the full true path, waits briefly, and force-animates the selected real packet path.
+- Added a low-zoom highlighted analysis route layer so selected packets, Plot Routes paths, and phonebook paths stay visible when zoomed out without showing every idle route.
+- Added a persistent Map Settings drawer with layer toggles for clusters, nodes, labels, known routes, highlighted paths, live comets, packet trails, observer bursts, and message bubbles.
+- Added packet visual controls for comet speed, brightness, trail length, and animation style, plus reset-to-default behavior.
+- Expanded `/api/v1/public/packets` with additive public-safe filters for IATA, payload, minimum hops, message-only packets, and sanitized query search.
+- Increased Packets page default paging to 500 rows, added a windowed list, richer packet detail, public segment breakdown, focus/replay actions, and copyable public route IDs.
+- Updated the 2.4 roadmap to cover 2.4.2 through 2.4.5 as the Packets and map-control production pass.
+
 ## 2.4.1 - 2026-05-24
 
 - Added the top-bar `Packets` tab for public-safe true-path packet browsing, with 1h/6h/24h windows, search, region/payload/min-hop/message filters, newest-first paging, and load-older support.

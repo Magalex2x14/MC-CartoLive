@@ -9,6 +9,12 @@ describe('map zoom layer consistency', () => {
     }
   });
 
+  it('keeps only highlighted analysis paths visible at low zoom', () => {
+    expect(layer('analysis-route-overview-glow')?.minzoom).toBeUndefined();
+    expect(layer('analysis-route-overview-line')?.minzoom).toBeUndefined();
+    expect(mapOverlayStyle.sources['analysis-route-paths']).toBeTruthy();
+  });
+
   it('keeps all cluster-only layers below detail mode', () => {
     for (const item of mapOverlayStyle.layers) {
       if (item.id === 'node-clusters' || item.id === 'node-cluster-counts' || item.id.startsWith('node-cluster-role-') || item.id.startsWith('cluster-activity-')) {

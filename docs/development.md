@@ -123,7 +123,7 @@ and phonebook path focus.
 
 ## Route Copy And Plotting
 
-For v2.4.1 VCR, route-copy, phonebook, live-confidence, true-path packet, and route performance checks:
+For v2.4.5 VCR, route-copy, phonebook, live-confidence, true-path packet, map settings, and route performance checks:
 
 - Select a node, click a phonebook row, and confirm a Copy route button appears
   with a comma-separated six-character MeshCore 3-byte path.
@@ -148,6 +148,20 @@ For v2.4.1 VCR, route-copy, phonebook, live-confidence, true-path packet, and ro
   last-seen text, and idle routes stay subdued until a packet comet uses them.
 - Confirm Live Follow smoothly follows fresh packet movement and can be toggled
   off without leaving the map in a forced camera state.
+- Open Packets, click Replay on a true-path packet, and confirm the Packets
+  panel compacts, live packet flow pauses, the map fits the complete path, waits
+  briefly, then animates the selected packet at a watchable pace.
+- Zoom out during a selected packet replay or long Plot Routes result and
+  confirm the highlighted analysis route stays visible without showing every
+  idle known route.
+- Open Map Settings and verify layer toggles for clusters, nodes, labels,
+  known routes, highlighted analysis paths, live comets, trails, observer
+  bursts, and message bubbles do not trigger unnecessary source rebuilds.
+- Adjust packet speed, brightness, trail length, and animation style, then
+  confirm live comets and forced packet replay reflect the settings.
+- Filter the Packets tab by IATA, payload, minimum hops, message-only, and text
+  query; confirm results come from the server-backed 24h window, not only the
+  currently loaded rows.
 - Confirm the VCR is hidden on first load, the live pulse clock appears bottom
   right, and the bottom-left action dock opens the slim VCR without overlapping
   map controls.
@@ -220,7 +234,7 @@ Use overrides when testing a branch, alternate host, expected build, or another
 diagnostic IATA:
 
 ```powershell
-.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.1 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
+.\scripts\live-smoke.ps1 -BaseUrl https://carto.canadaverse.org -ExpectedVersion 2.4.5 -ExpectedGitSha <short-sha> -DiagnoseIata YTR
 ```
 
 Check privacy before committing:

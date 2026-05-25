@@ -33,6 +33,7 @@ afterEach(() => {
 describe('packet animation timing', () => {
   it('uses fast-readable bounded travel durations', () => {
     expect(packetTravelDuration(1)).toBe(PACKET_SINGLE_HOP_DURATION_MS);
+    expect(packetTravelDuration(1, 2)).toBe(Math.round(PACKET_SINGLE_HOP_DURATION_MS / 2));
     expect(packetTravelDuration(2)).toBeGreaterThan(PACKET_SINGLE_HOP_DURATION_MS);
     expect(packetTravelDuration(99)).toBe(PACKET_MAX_TRAVEL_DURATION_MS);
     expect(PACKET_AFTERGLOW_MS).toBe(1200);
@@ -171,6 +172,61 @@ describe('packet animation timing', () => {
 
     expect((animator as any).traceHits).toHaveLength(1);
     expect((animator as any).observerBurstHits).toHaveLength(1);
+    animator.destroy();
+    window.requestAnimationFrame = originalRAF;
+    window.cancelAnimationFrame = originalCancelRAF;
+  });
+
+  it('allows a forced packet replay while the live animator is paused', () => {
+    const originalRAF = window.requestAnimationFrame;
+    const originalCancelRAF = window.cancelAnimationFrame;
+    window.requestAnimationFrame = vi.fn(() => 1) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn() as typeof window.cancelAnimationFrame;
+
+    const canvas = document.createElement('canvas');
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ width: 120, height: 80 })
+    });
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      clearRect: vi.fn(),
+      setTransform: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+    const map = {
+      on: vi.fn(),
+      off: vi.fn(),
+      getLayer: vi.fn(() => false),
+      getZoom: vi.fn(() => 8),
+      queryRenderedFeatures: vi.fn(() => [])
+    };
+
+    const animator = new PacketAnimator(map as any, canvas);
+    animator.setPaused(true);
+    animator.add({
+      id: 'pulse-skipped',
+      payloadTypeName: 'PLAIN_TEXT',
+      heardAt: Date.now(),
+      segments: [{
+        routeId: 'r-skip',
+        from: { nodeId: 'node-a', label: 'A', lat: 43.45, lng: -80.49 },
+        to: { nodeId: 'node-b', label: 'B', lat: 43.65, lng: -79.38 },
+        distanceKm: 93
+      }]
+    });
+    expect((animator as any).pulses).toHaveLength(0);
+    animator.add({
+      id: 'pulse-forced',
+      payloadTypeName: 'PLAIN_TEXT',
+      heardAt: Date.now(),
+      segments: [{
+        routeId: 'r-force',
+        from: { nodeId: 'node-a', label: 'A', lat: 43.45, lng: -80.49 },
+        to: { nodeId: 'node-b', label: 'B', lat: 43.65, lng: -79.38 },
+        distanceKm: 93
+      }]
+    }, { force: true, travelDurationMs: 6000, brightness: 1.4, trailScale: 1.5, animationStyle: 'pulse' });
+    expect((animator as any).pulses).toHaveLength(1);
+    expect((animator as any).pulses[0].travelDuration).toBe(6000);
+    expect((animator as any).pulses[0].animationStyle).toBe('pulse');
     animator.destroy();
     window.requestAnimationFrame = originalRAF;
     window.cancelAnimationFrame = originalCancelRAF;

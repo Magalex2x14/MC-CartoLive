@@ -111,6 +111,13 @@ export interface PublicRoutePulse {
   displayAt?: number;
   seq?: number;
   segments: PublicRouteSegment[];
+  replayOptions?: {
+    force?: boolean;
+    travelDurationMs?: number;
+    brightness?: number;
+    trailScale?: number;
+    animationStyle?: 'comet' | 'pulse' | 'minimal';
+  };
 }
 
 export interface PublicPacketPath {

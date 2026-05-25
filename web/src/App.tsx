@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Check, Columns3, Eye, EyeOff, Layers, LocateFixed, Moon, Palette, Pause, Play, RadioTower, RotateCcw, Search, Share2, Sun, X } from 'lucide-react';
+import { Check, Columns3, Eye, EyeOff, Layers, LocateFixed, Moon, Palette, Pause, Play, RadioTower, RotateCcw, Search, Share2, SlidersHorizontal, Sun, X } from 'lucide-react';
 import { fetchPublicHistory, fetchPublicHistorySummary, fetchPublicState } from './api';
 import { connectPublicSocket } from './ws';
 import {
@@ -23,6 +23,7 @@ import VcrBar, { MiniLiveClock } from './components/VcrBar';
 import ChromePanel from './components/ChromePanel';
 import PerfPanel from './components/PerfPanel';
 import PacketsPanel from './components/PacketsPanel';
+import MapSettingsDrawer from './components/MapSettingsDrawer';
 import {
   DEFAULT_CHROME_PANEL_ANCHORS,
   INITIAL_CHROME_PANEL_VISIBILITY,
@@ -62,6 +63,7 @@ import {
 } from './selection';
 import { buildSharedViewURL, parseSharedView, type MapViewState } from './shareView';
 import { recordLivePendingQueueSize, recordVcrReplayQueueSize, recordVisibilityPause } from './perfDiagnostics';
+import { readStoredMapSettings, writeStoredMapSettings, type MapSettings } from './mapSettings';
 import {
   THEME_PALETTES,
   applyDocumentTheme,
@@ -123,8 +125,11 @@ export default function App() {
   const [themePaletteID, setThemePaletteID] = useState(() => initialThemeRef.current.palette.id);
   const [paletteMenuOpen, setPaletteMenuOpen] = useState(false);
   const [panelsMenuOpen, setPanelsMenuOpen] = useState(false);
+  const [mapSettingsOpen, setMapSettingsOpen] = useState(false);
+  const [mapSettings, setMapSettings] = useState<MapSettings>(() => readStoredMapSettings());
   const [perfOpen, setPerfOpen] = useState(() => window.location.hash === '#/perf');
   const [packetsOpen, setPacketsOpen] = useState(() => window.location.hash === '#/packets');
+  const [packetsPanelMode, setPacketsPanelMode] = useState<'expanded' | 'compactTray'>('expanded');
   const [initialLoadGateOpen, setInitialLoadGateOpen] = useState(true);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [liveClock, setLiveClock] = useState(() => Date.now());
@@ -168,7 +173,9 @@ export default function App() {
       if (nextPerfOpen || nextPacketsOpen) {
         setPaletteMenuOpen(false);
         setPanelsMenuOpen(false);
+        setMapSettingsOpen(false);
       }
+      setPacketsPanelMode('expanded');
     };
     updateRoute();
     window.addEventListener('hashchange', updateRoute);
@@ -186,8 +193,14 @@ export default function App() {
     if (window.location.hash === '#/packets') {
       window.history.pushState(null, '', `${window.location.pathname}${window.location.search}`);
     }
+    if (packetsPanelMode === 'compactTray') setPaused(false);
     setPacketsOpen(false);
-  }, []);
+    setPacketsPanelMode('expanded');
+  }, [packetsPanelMode]);
+
+  useEffect(() => {
+    writeStoredMapSettings(mapSettings);
+  }, [mapSettings]);
 
   useEffect(() => {
     vcrModeRef.current = vcr.mode;
@@ -715,14 +728,38 @@ export default function App() {
       recordVcrReplayQueueSize(0);
       setVcr((current) => ({ ...current, mode: 'live', missedCount: 0, scrubAt: null, clock: null, status: 'idle' }));
     }
+    setPlotMode('off');
+    setPlotFirstNodeID(null);
+    setPlotAreaFirstPoint(null);
+    setFollowTraffic(false);
+    setPaused(true);
+    setSelectedPacket(packet);
+    setPacketsPanelMode('compactTray');
+    applySelection(clearSelectionState());
+    const token = actionTokenRef.current + 1;
+    actionTokenRef.current = token;
+    const travelDurationMs = cinematicPacketReplayDuration(packet.segmentCount, mapSettings.packets.speed);
+    const pulse = packetToPulse(packet, Date.now(), {
+      force: true,
+      travelDurationMs,
+      brightness: mapSettings.packets.brightness,
+      trailScale: mapSettings.packets.trail,
+      animationStyle: mapSettings.packets.animationStyle
+    });
+    setMapAction({
+      type: 'packet-replay',
+      token,
+      segments: packet.segments,
+      pulse,
+      settleMs: 650,
+      travelDurationMs
+    });
+  }, [applySelection, clearPendingLiveFlush, mapSettings.packets, stopReplay]);
+
+  const resumeLiveFromPacketTray = useCallback(() => {
     setPaused(false);
-    focusPacketPath(packet);
-    const pulse = packetToPulse(packet);
-    setState((current) => ({
-      ...current,
-      pulses: [pulse, ...current.pulses].slice(0, 240)
-    }));
-  }, [clearPendingLiveFlush, focusPacketPath, stopReplay]);
+    setPacketsPanelMode('expanded');
+  }, []);
 
   const startNodePlot = useCallback(() => {
     setPlotMode('node');
@@ -837,6 +874,7 @@ export default function App() {
       data-theme-mode={themeMode}
       data-theme-palette={selectedThemePalette.id}
       data-vcr-layout={vcrOpen ? 'open' : 'closed'}
+      data-packets-mode={packetsOpen ? packetsPanelMode : 'closed'}
       style={appThemeStyle}
     >
       <CanadaMap
@@ -851,6 +889,9 @@ export default function App() {
         selectedRouteID={selectedRouteID}
         highlightedPathRouteIDs={highlightedPathRouteIDs}
         highlightedPathNodeIDs={highlightedPathNodeIDs}
+        analysisSegments={selectedPacket?.segments ?? []}
+        layerSettings={mapSettings.layers}
+        packetVisualSettings={mapSettings.packets}
         plotMode={plotMode}
         mapAction={mapAction}
         baseMode={mapBaseMode}
@@ -898,6 +939,7 @@ export default function App() {
             onClick={() => {
               setPanelsMenuOpen((value) => !value);
               setPaletteMenuOpen(false);
+              setMapSettingsOpen(false);
             }}
           >
             <Columns3 size={18} />
@@ -924,6 +966,19 @@ export default function App() {
           )}
         </div>
         <button
+          className={`icon-button map-settings-toggle ${mapSettingsOpen ? 'active' : ''}`}
+          type="button"
+          aria-pressed={mapSettingsOpen}
+          title="Map settings"
+          onClick={() => {
+            setMapSettingsOpen((value) => !value);
+            setPanelsMenuOpen(false);
+            setPaletteMenuOpen(false);
+          }}
+        >
+          <SlidersHorizontal size={18} />
+        </button>
+        <button
           className={`icon-button theme-mode-toggle ${themeMode}`}
           type="button"
           aria-pressed={themeMode === 'light'}
@@ -942,6 +997,7 @@ export default function App() {
             onClick={() => {
               setPaletteMenuOpen((value) => !value);
               setPanelsMenuOpen(false);
+              setMapSettingsOpen(false);
             }}
           >
             <Palette size={18} />
@@ -1002,16 +1058,27 @@ export default function App() {
       </div>
       {shareToast && <div className="share-toast" role="status">{shareToast}</div>}
       {perfOpen && <PerfPanel onClose={closePerf} />}
+      {mapSettingsOpen && (
+        <MapSettingsDrawer
+          settings={mapSettings}
+          onChange={setMapSettings}
+          onClose={() => setMapSettingsOpen(false)}
+        />
+      )}
       {packetsOpen && (
         <PacketsPanel
+          mode={packetsPanelMode}
           selectedPacketID={selectedPacket?.id ?? null}
+          selectedPacket={selectedPacket}
           onClose={closePackets}
+          onExpand={() => setPacketsPanelMode('expanded')}
+          onResumeLive={resumeLiveFromPacketTray}
           onSelectPacket={focusPacketPath}
           onReplayPacket={replayPacketPath}
         />
       )}
 
-      {!vcrOpen && (
+      {!vcrOpen && packetsPanelMode !== 'compactTray' && (
         <>
           {!chromeHidden && (
             <div className="bottom-action-dock" aria-label="Map playback and route controls">
@@ -1174,6 +1241,12 @@ function replayEnvelopeClockAt(message: PublicLiveEnvelope): number {
     return message.data.heardAt;
   }
   return liveEnvelopeDisplayAt(message);
+}
+
+function cinematicPacketReplayDuration(segmentCount: number, speed: number): number {
+  const safeSpeed = Number.isFinite(speed) ? Math.max(0.5, Math.min(3, speed)) : 1;
+  const hopBonus = Math.min(3000, Math.max(0, segmentCount - 4) * 420);
+  return Math.round((6000 + hopBonus) / safeSpeed);
 }
 
 function paletteSwatchStyle(palette: ThemePalette): CSSProperties {

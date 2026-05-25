@@ -6,8 +6,12 @@ describe('PacketsPanel', () => {
   it('renders the true-path packet shell without exposing private packet concepts', () => {
     const html = renderToStaticMarkup(
       <PacketsPanel
+        mode="expanded"
         selectedPacketID={null}
+        selectedPacket={null}
         onClose={() => undefined}
+        onExpand={() => undefined}
+        onResumeLive={() => undefined}
         onSelectPacket={() => undefined}
         onReplayPacket={() => undefined}
       />
@@ -18,5 +22,34 @@ describe('PacketsPanel', () => {
     expect(html).not.toContain('hash');
     expect(html).not.toContain('raw');
     expect(html).not.toContain('resolver');
+  });
+
+  it('renders compact replay tray controls for a selected packet', () => {
+    const html = renderToStaticMarkup(
+      <PacketsPanel
+        mode="compactTray"
+        selectedPacketID="packet-1"
+        selectedPacket={{
+          id: 'packet-1',
+          at: Date.now() - 1000,
+          iata: 'YYZ',
+          payloadTypeName: 'PLAIN_TEXT',
+          hopCount: 2,
+          segmentCount: 2,
+          distanceKm: 123,
+          routeIds: ['route-a'],
+          endpointLabels: ['A', 'B'],
+          segments: []
+        }}
+        onClose={() => undefined}
+        onExpand={() => undefined}
+        onResumeLive={() => undefined}
+        onSelectPacket={() => undefined}
+        onReplayPacket={() => undefined}
+      />
+    );
+    expect(html).toContain('Packet replay');
+    expect(html).toContain('Replay again');
+    expect(html).toContain('Resume live');
   });
 });

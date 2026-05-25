@@ -81,6 +81,28 @@ function Get-WebSocketHello {
   }
 }
 
+function Get-HealthForSmoke {
+  param([string]$PublicBaseUrl)
+
+  $last = $null
+  for ($attempt = 1; $attempt -le 6; $attempt++) {
+    try {
+      $last = Invoke-RestMethod "$PublicBaseUrl/healthz"
+    } catch {
+      if ($attempt -eq 6) {
+        throw
+      }
+      Start-Sleep -Seconds 5
+      continue
+    }
+    if ([string]$last.packetIngestState -eq "fresh") {
+      return $last
+    }
+    Start-Sleep -Seconds 5
+  }
+  return $last
+}
+
 function Invoke-RemoteSmoke {
   param(
     [string]$Target,
@@ -120,7 +142,7 @@ try {
     $ExpectedGitSha = Get-RepoValue "git rev-parse --short HEAD" ""
   }
 
-  $health = Invoke-RestMethod "$BaseUrl/healthz"
+  $health = Get-HealthForSmoke $BaseUrl
   Assert-Smoke ([bool]$health.ok) "/healthz did not report ok=true"
   Assert-Smoke ([string]$health.version -eq $ExpectedVersion) "deployed version $($health.version) did not match expected $ExpectedVersion"
   Assert-Smoke (-not [string]::IsNullOrWhiteSpace([string]$health.buildTime)) "deployed buildTime is empty"

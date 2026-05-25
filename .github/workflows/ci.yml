@@ -68,7 +68,34 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          provenance: false
           tags: meshcore-canada-live-map:ci
+          build-args: |
+            APP_VERSION=2.4.6
+
+      - name: Smoke built image
+        run: |
+          docker run -d --name mc-cartolive-ci -p 18080:8080 \
+            -e MQTT_ENABLED=false \
+            -e PUBLIC_MODE=true \
+            -e PUBLIC_BASE_URL=http://127.0.0.1:18080 \
+            -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
+            meshcore-canada-live-map:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/tmp/mc-health.json; then
+              break
+            fi
+            sleep 1
+          done
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/readyz >/tmp/mc-ready.json; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q '"version":"2.4.6"' /tmp/mc-health.json
+          docker exec mc-cartolive-ci test -s /app/examples/fixtures/synthetic-live.ndjson
 
   secret-scan:
     name: Secret scan

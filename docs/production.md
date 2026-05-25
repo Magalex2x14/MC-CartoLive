@@ -52,6 +52,40 @@ Point your HTTPS tunnel or reverse proxy at:
 http://localhost:39476
 ```
 
+## Published Image Deploy
+
+Release tags publish a built image to GitHub Container Registry:
+
+```text
+ghcr.io/n30nex/mc-cartolive:<version>
+```
+
+Credential-free demo mode works without a checkout because the synthetic fixture
+is copied into the image:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e MQTT_ENABLED=false \
+  -e PUBLIC_MODE=true \
+  -e PUBLIC_BASE_URL=http://localhost:8080 \
+  -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
+  ghcr.io/n30nex/mc-cartolive:2.4.6
+```
+
+For production, keep private settings in an env file and mount persistent data:
+
+```bash
+docker run -d --name mc-cartolive \
+  -p 8080:8080 \
+  --env-file .env \
+  -v mc-cartolive-data:/app/data \
+  ghcr.io/n30nex/mc-cartolive:2.4.6
+```
+
+The published image runs as non-root `appuser`, includes OCI source/version
+labels, includes the bundled `mc-diagnose` operator tool, and exposes `/healthz`
+as its Docker healthcheck.
+
 ## Upgrades
 
 Back up first, then rebuild:
@@ -98,7 +132,7 @@ docker compose up -d
 
 ## Runtime Notes
 
-- Version 2.4.5 exposes the app version/build in the top project bar. CI builds use
+- Version 2.4.6 exposes the app version/build in the top project bar. CI builds use
   the Git commit SHA when available; local Docker builds use a timestamp fallback
   plus a separate ISO build time for build-age display.
 - Runtime liveness and readiness are split: `/healthz` stays cheap for Docker
@@ -192,4 +226,4 @@ Common startup failures:
 
 - `MQTT subscriber auth requires MQTT_USERNAME and MQTT_PASSWORD`: fill private credentials or set `MQTT_ENABLED=false`.
 - WebSocket rejected by origin: set `PUBLIC_BASE_URL` to the exact public HTTPS origin.
-- Empty map with MQTT disabled: set `FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson` for demo mode.
+- Empty map with MQTT disabled: set `FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson` for demo mode. This fixture is included in the published image and bind-mounted by the clone + Compose setup.

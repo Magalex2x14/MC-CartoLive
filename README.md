@@ -1,4 +1,4 @@
-# MeshCore MQTT Live Map v2.4.5
+# MeshCore MQTT Live Map v2.4.6
 
 Also known as **MC-CartoLive**.
 
@@ -128,6 +128,41 @@ without MQTT credentials. To connect to live MQTT, edit your private `.env`, set
 `MQTT_ENABLED=true`, clear `FIXTURE_REPLAY_PATH`, and add your MQTT username and
 password.
 
+## Published Docker Image
+
+Tagged releases publish a built image to GitHub Container Registry:
+
+```text
+ghcr.io/n30nex/mc-cartolive:<version>
+ghcr.io/n30nex/mc-cartolive:<major>.<minor>
+ghcr.io/n30nex/mc-cartolive:latest
+```
+
+Run the published image in credential-free demo mode:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e MQTT_ENABLED=false \
+  -e PUBLIC_MODE=true \
+  -e PUBLIC_BASE_URL=http://localhost:8080 \
+  -e FIXTURE_REPLAY_PATH=/app/examples/fixtures/synthetic-live.ndjson \
+  ghcr.io/n30nex/mc-cartolive:2.4.6
+```
+
+For a real public deployment, mount persistent data and provide private MQTT
+credentials through environment variables or an env file:
+
+```bash
+docker run -d --name mc-cartolive \
+  -p 8080:8080 \
+  --env-file .env \
+  -v mc-cartolive-data:/app/data \
+  ghcr.io/n30nex/mc-cartolive:2.4.6
+```
+
+The image includes the synthetic demo fixture, runs as non-root `appuser`, and
+exposes `/healthz` for container liveness.
+
 ## Configuration
 
 Real MQTT credentials, channel secrets, private keys, live databases, and local
@@ -193,7 +228,7 @@ docker compose build
 
 ## Production Hosting
 
-The recommended v2.4.5 release path is clone + Docker Compose on a VPS or local
+The recommended v2.4.6 release path is clone + Docker Compose on a VPS or local
 host, optionally behind Cloudflare Tunnel or another HTTPS reverse proxy.
 
 For a public site:

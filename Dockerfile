@@ -8,7 +8,7 @@ ARG VITE_TERRAIN_EXAGGERATION=1.25
 ARG VITE_BUILD_NUMBER=
 ARG VITE_GIT_SHA=
 ARG VITE_BUILD_TIME=
-ARG APP_VERSION=2.4.5
+ARG APP_VERSION=2.4.6
 ENV VITE_OPENFREEMAP_STYLE_URL=$VITE_OPENFREEMAP_STYLE_URL
 ENV VITE_OPENFREEMAP_TILEJSON_URL=$VITE_OPENFREEMAP_TILEJSON_URL
 ENV VITE_TERRAIN_TILEJSON_URL=$VITE_TERRAIN_TILEJSON_URL
@@ -35,15 +35,24 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/meshcore-live ./cmd/app \
 
 # runtime
 FROM alpine:3.22
-ARG APP_VERSION=2.4.5
+ARG APP_VERSION=2.4.6
 ARG VITE_GIT_SHA=
 ARG VITE_BUILD_TIME=
+LABEL org.opencontainers.image.title="MC-CartoLive" \
+  org.opencontainers.image.description="Public-safe MeshCore MQTT live map with routed packet replay" \
+  org.opencontainers.image.source="https://github.com/n30nex/MC-CartoLive" \
+  org.opencontainers.image.url="https://github.com/n30nex/MC-CartoLive" \
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.version=$APP_VERSION \
+  org.opencontainers.image.revision=$VITE_GIT_SHA \
+  org.opencontainers.image.created=$VITE_BUILD_TIME
 RUN apk add --no-cache ca-certificates tzdata
 RUN adduser -D -h /app appuser
 WORKDIR /app
 COPY --from=gobuild /out/meshcore-live /app/meshcore-live
 COPY --from=gobuild /out/mc-diagnose /app/mc-diagnose
-RUN mkdir -p /app/data/fixtures && chown -R appuser:appuser /app
+RUN mkdir -p /app/data /app/examples/fixtures && chown -R appuser:appuser /app
+COPY --chown=appuser:appuser examples/fixtures/synthetic-live.ndjson /app/examples/fixtures/synthetic-live.ndjson
 ENV APP_VERSION=$APP_VERSION
 ENV GIT_SHA=$VITE_GIT_SHA
 ENV BUILD_TIME=$VITE_BUILD_TIME

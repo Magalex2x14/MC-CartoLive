@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.4.6 - 2026-05-24
+
+- Fixed packaging metadata for public release builds by aligning `.env.example`, Docker defaults, frontend package metadata, and backend default version with `2.4.6`.
+- Added OCI labels and copied the synthetic fixture into the runtime Docker image so published containers can run a credential-free demo without a repository checkout.
+- Added a GHCR publish workflow for tagged releases with version, minor, latest, and short-SHA image tags, plus SBOM/provenance build settings.
+- Expanded release checks to include `/api/v1/public/packets` and made live smoke retry transient packet-ingest staleness before failing.
+- Updated README, production, and security docs with published-image usage, image tags, public endpoint coverage, and container demo guidance.
+
 ## 2.4.5 - 2026-05-24
 
 - Reworked Packets replay into a cinematic analysis flow: replay compacts the Packets panel, pauses live packet flow, fits the full true path, waits briefly, and force-animates the selected real packet path.

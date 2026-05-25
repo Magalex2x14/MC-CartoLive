@@ -37,6 +37,7 @@ try {
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   $from = $now - 600000
   $history = Invoke-RestMethod "$BaseUrl/api/v1/public/history?from=$from&to=$now&limit=25"
+  $packets = Invoke-RestMethod "$BaseUrl/api/v1/public/packets?from=$from&to=$now&limit=25"
 
   [PSCustomObject]@{
     BaseUrl = $BaseUrl
@@ -46,6 +47,7 @@ try {
     Nodes = $state.stats.activeNodes
     Routes = $state.stats.activeRoutes
     HistoryEvents = $history.window.count
+    PacketPaths = $packets.window.count
     PacketIngestState = $health.packetIngestState
     PublicCacheState = $health.publicCacheState
     MapMotionState = $health.mapMotionState

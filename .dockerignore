@@ -17,7 +17,6 @@ backend/*.test
 backend/internal/api/static/assets
 
 data
-examples
 
 .env
 .env.*

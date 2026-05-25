@@ -6,7 +6,11 @@ This project is intended to run as a public, read-only MeshCore Canada live map.
 The public deployment should use `PUBLIC_MODE=true`, which exposes only:
 
 - `/healthz`
+- `/readyz`
 - `/api/v1/public/state`
+- `/api/v1/public/history`
+- `/api/v1/public/history/summary`
+- `/api/v1/public/packets`
 - `/ws/public`
 - the static dashboard
 

@@ -11,18 +11,11 @@ privacy-safe public APIs.
 The app stays intentionally simple for operators: one Go backend, one embedded
 React frontend, one SQLite database, one Docker Compose service.
 
-Public Instances: 
-Meshcore Canada MQTT - https://carto.canadaverse.org/
+Public instance: [MeshCore Canada MQTT](https://carto.canadaverse.org/).
 
 ## Screenshots
 
-Real public map data from the local production container:
-
-![MC-CartoLive 2.1 feature collage](docs/assets/screenshots/mc-cartolive-2.1-share-collage.png)
-
-The 2.1 view includes dark/light map modes, OpenFreeMap 3D, route plotting,
-node clusters, route focus, node details, phonebook routing, VCR replay, and
-palette swatches.
+Real public map data from the production UI:
 
 ![Canada cluster overview](docs/assets/screenshots/canada-clusters.png)
 
@@ -30,48 +23,23 @@ palette swatches.
 
 ![Ottawa live route detail](docs/assets/screenshots/ottawa-detail.png)
 
-## What It Does
+## Capabilities
 
-- Subscribes read-only to MeshCore MQTT packet and status topics.
-- Decodes MeshCore packet and payload types needed for public map rendering.
-- Resolves RF paths conservatively, without drawing guessed routes.
-- Shows low-zoom role-split cluster activity and high-zoom route/node detail.
-- Keeps routes, nodes, observer icons, packet effects, and message bubbles behind one shared detail zoom threshold so routes never appear without nodes.
-- Shows ordinary node names on hover/details only, while observer names persist without noisy last-seen text.
-- Greys stale nodes after 30 minutes and darkens them further after 60 minutes.
-- Lets users select repeaters, observers, rooms, companions, or sensors to highlight directly served RF routes and connected nodes.
-- Keeps route lines passive on the map so dense RF paths do not steal clicks from nodes.
-- Optimizes dense route rendering for slower computers by avoiding unnecessary full route redraws and rendering live route glow only for active routes.
-- Paces live websocket bursts so packet counters, observer bursts, and routed comets keep moving smoothly instead of arriving as one visual clump.
-- Hardens WebSocket reconnects with bounded jitter/backoff and snapshot recovery so public map motion resumes after transient network drops.
-- Separates packet-ingest freshness from routed/observer map motion so quiet route periods can be diagnosed without hiding a healthy MQTT feed.
-- De-emphasizes older known routes subtly while keeping fresh routed traffic visually clear.
-- Adds a searchable reachable-node phonebook that defaults to useful shortest-path routes first, can filter by distance, supports best/shortest/busiest/nearest/recent sorting, highlights a selected multi-hop path, and can copy MeshCore 3-byte route prefixes.
-- Adds a Plot routes control for choosing two node endpoints or two map corners and highlighting matching public RF routes.
-- Shows decoded public chatter history for the selected node when sanitized message text is available in the live window.
-- Animates live packet comets, sustained observer activity aura, route payload glows, and message bubbles.
-- Adds a hidden-by-default VCR playback surface for pausing live motion, replaying missed routed packet comets, scrubbing recent history, and replaying at 0.5x, 1x, 2x, or 4x.
-- Keeps the VCR compact, clear of map controls, and paired with a bottom-right live pulse clock when closed.
-- Adds hideable/snappable Search, compact Legend, and Busy Pathways panels with a top panel restore menu.
-- Adds a top-bar Perf tab with public-safe live confidence, backend pressure, WebSocket, and browser-local map render counters.
-- Adds a top-bar Packets tab with public-safe true-path packet records backed only by persisted routed edge events, server-backed filters across the public 24h window, a windowed packet list, map focus, and cinematic one-click comet replay.
-- Keeps selected packet, Plot Routes, and phonebook analysis paths visible at low zoom without showing every idle route across Canada.
-- Adds a persistent Map Settings drawer with layer toggles and packet comet speed/brightness/trail/style controls.
-- Shows Busy Pathways as a compact last-15-minute packet-count list instead of a flow graph.
-- Adds client-side dark/light mode and MeshCore Tower palette selection.
-- Includes a transparent project bar with MeshCore Canada, GitHub stars/forks, linked version/build metadata, and build age.
-- Provides a red Live Follow control for smoothly following areas with fresh packet movement.
-- Prioritizes the map on mobile by hiding secondary panels/toasts and keeping the map, packet animations, live clock, and essential controls readable.
-- Serves public state from a backend memory cache instead of rebuilding every request from SQLite.
-- Adds cheap `/healthz` liveness and `/readyz` readiness checks with public-safe runtime counters for cache age, DB readiness, MQTT status, WebSocket drops, public history latency, and live-confidence states.
-- Adds operator-only diagnostics for explaining why a node, observer, label, name, or IATA is or is not shown on the public map.
-- Adds release, live smoke, and soak scripts so operators can capture repeatable local or droplet evidence before tagging.
-- Caches public history location indexes and timeline summary buckets to reduce SQLite pressure from VCR replay and timeline polling.
-- Batches frontend map source updates behind animation frames and pauses packet canvas work while the tab is hidden.
-- Exposes opt-in browser-local performance counters for development without sending telemetry anywhere.
-- Filters public traffic through the Canada IATA allowlist.
-- Keeps private broker credentials, channel secrets, live DB files, packet hashes, full public keys, raw path hex, and resolver debug details out of public responses.
-- Publishes only six-character MeshCore 3-byte route prefixes for route-copy workflows.
+- Ingests MeshCore MQTT traffic read-only, decodes public-safe packet metadata,
+  and stores observations in SQLite.
+- Resolves only high-confidence RF routes. Ambiguous, unresolved, unmappable, or
+  disallowed-IATA traffic is counted for diagnostics but not guessed onto the map.
+- Serves a MapLibre public dashboard with clustered overview, detail zoom,
+  live packet comets, observer activity, message bubbles, Plot Routes, a
+  reachable-node phonebook, OpenFreeMap 3D mode, light/dark themes, and palette
+  controls.
+- Provides a hidden-by-default VCR for 24h public replay and a Packets tab for
+  true-path packet records backed only by persisted routed edge events.
+- Includes operator tools for release checks, live droplet smoke checks, soak
+  checks, performance counters, and local-only map-inclusion diagnostics.
+- Keeps public APIs sanitized: no broker credentials, channel secrets, live DB
+  files, packet hashes, full public keys, raw path hex, raw payloads, or resolver
+  debug details.
 
 ## Architecture
 
@@ -107,21 +75,11 @@ Open:
 http://localhost:39476
 ```
 
-The dashboard starts in the original MapLibre/CARTO dark view. Use the map
-base toggle in the map controls to switch the same live map to the
-OpenFreeMap 3D view without changing ports or services.
+The dashboard starts in the MapLibre/CARTO dark view. Use the map base toggle
+to switch the same live map to OpenFreeMap 3D without changing ports or
+services.
 Use the top theme controls to switch dark/light mode and choose a color
 palette. These are browser-local preferences and do not change backend data.
-
-Optional isolated OpenFreeMap 3D dev stack:
-
-```bash
-docker compose -f docker-compose.openfreemap.yml up --build
-```
-
-Open `http://localhost:39477`. This stack reuses the same `.env` credentials
-but uses a separate MQTT client ID and `data-openfreemap/` database directory so
-it can run beside the main container.
 
 The committed example runs a synthetic fixture by default so a fresh clone works
 without MQTT credentials. To connect to live MQTT, edit your private `.env`, set
@@ -249,7 +207,7 @@ More details:
 - [Development](docs/development.md)
 - [Production](docs/production.md)
 - [Operator runbook](docs/operator-runbook.md)
-- [2.3/2.4 operator and true-path packets roadmap](docs/roadmap.md)
+- [Roadmap and release focus](docs/roadmap.md)
 - [Privacy](docs/privacy.md)
 - [Security](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)

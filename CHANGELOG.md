@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Cleaned project documentation around the current supported Docker path, removed
+  the obsolete separate OpenFreeMap compose stack, and dropped an oversized old
+  screenshot collage from tracked docs assets.
+
 ## 2.4.7 - 2026-05-24
 
 - Added public-safe `/api/v1/public/packets` runtime counters to health/readiness output and bounded Packets history scanning with cursor continuation for rare filters.

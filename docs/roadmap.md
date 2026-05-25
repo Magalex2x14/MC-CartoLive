@@ -1,142 +1,47 @@
-# MC-CartoLive 2.3 Operator Confidence Roadmap
+# MC-CartoLive Roadmap
 
-The 2.3 line keeps public map features stable and improves operator confidence:
-release checks should be repeatable, live soaks should produce evidence, and
-missing-data investigations should be easy to run from the production host.
+This document tracks the active release focus. Completed release details belong
+in `CHANGELOG.md`; operator procedures belong in `docs/operator-runbook.md`.
 
-## 2.3.0 - Release And Soak Automation Baseline
+## Current Baseline
 
-- Add repeatable soak scripts for local or droplet validation.
-- Record health, readiness, public state, packet totals, live-confidence states,
-  and history availability over time.
-- Keep output local as JSON/NDJSON artifacts; do not add telemetry or public
-  diagnostic endpoints.
+Version `2.4.7` is the current production baseline.
 
-## 2.3.1 - Live Droplet Smoke Automation
+- Public map behavior is feature-frozen for the 2.4 line.
+- Public packet/path data remains sanitized and schema-compatible.
+- The supported runtime is the main Docker Compose service or the published
+  GHCR image. OpenFreeMap is an in-app map toggle, not a separate stack.
+- Release readiness is verified with backend tests, frontend tests/build, Docker
+  build, packaged-image smoke, live smoke, and privacy checks.
 
-- Make the production smoke path a single documented command after deploy.
-- Verify `/healthz`, `/readyz`, public state, public history, WebSocket connect,
-  and bundled `mc-diagnose`.
-- Include explicit checks for version, git SHA, build time, packet count, and
-  `packetIngestState=fresh` under live traffic.
+## Active Maintenance Focus
 
-## 2.3.2 - Perf Lab Tab
+- Keep packet ingest, public cache, WebSocket fanout, public history, and public
+  packet paths observable through public-safe health/readiness counters.
+- Keep the Packets page server-backed, cursor-stable, and bounded under rare
+  filters or large 24h windows.
+- Keep map rendering smooth on modest clients by avoiding unnecessary source
+  rebuilds, duplicate replay schedulers, and hidden-tab animation work.
+- Keep production deployment repeatable through release, smoke, soak, and
+  operator diagnostic scripts.
+- Keep docs concise enough that new operators can deploy, smoke test, diagnose,
+  back up, restore, and upgrade without reading historical planning notes.
 
-- Add a top-bar Perf tab for public-safe live confidence, backend pressure,
-  WebSocket, queue, and browser-local render counters.
-- Keep diagnostics browser-local or public-safe only; do not add telemetry or
-  expose private packet/debug data.
+## Next Cleanup Candidates
 
-## 2.3.3 - Diagnostic Snapshot Reports
-
-- Add operator-only snapshot commands for IATA health, missing coordinates,
-  stale observers, and label-vs-actual-IATA mismatches.
-- Keep raw keys, packet hashes, raw hex, resolver debug details, and local
-  config out of reports.
-- Use snapshots to answer "why is this missing?" before changing map logic.
-
-## 2.3.4 - Backup And Restore Rehearsal
-
-- Add documented backup/restore rehearsal steps for SQLite WAL deployments.
-- Verify the app can restart from restored `meshcore-live.db*` files.
-- Keep restore tests operator-run only; do not mutate production data without an
-  explicit maintenance window.
-
-## 2.3.5 - Frontend Payload And Smoothness Pass
-
-- Reduce the large frontend bundle with targeted code splitting where it is low
-  risk.
-- Preserve the current VCR, palette, Legend, route plotting, phonebook, and map
-  animation behavior.
-- Use browser-local performance counters to prove source rebuild and animation
-  behavior do not regress.
-
-## 2.3.6 - Production Candidate Gate
-
-- Complete a 24h live soak with packet ingest normally under five seconds stale.
-- Run backend tests, frontend tests/build, Docker build, release check, live
-  smoke, diagnostic smoke, public history, WebSocket, and browser checks.
-- Tag only after privacy regression checks and soak artifacts are reviewed.
-
-## 2.4.0 - True Path Packets API Groundwork
-
-- Add a public-safe packets endpoint backed only by persisted `live_edge_events`
-  that already produced mappable public route segments.
-- Define a true path packet as a routed packet with at least one valid public
-  segment, public IATA allowance, sanitized labels, public route IDs, public
-  endpoint coordinates, and no raw packet hash, raw path hex, full public key,
-  resolver reason, raw payload, or broker metadata.
-- Return stable cursor pagination over the same 24h history window used by VCR
-  replay so the future Packets page can show only real routed packet paths.
-
-## 2.4.1 - Packets Page v1
-
-- Add a top-bar Packets tab with a clean CoreScope-style packet list focused on
-  real paths: time, payload type, IATA, hop/segment count, distance, endpoint
-  labels, and route preview.
-- Keep the page viewer-first: newest packets are easy to scan, selecting a row
-  highlights the exact public route segments on the map, and replaying a row
-  feeds the existing comet animation path.
-- Include filters for time window, IATA, payload type, minimum hops, and message
-  payloads only when backed by sanitized public route events.
-
-## 2.4.2 - Packet Replay And Long-Route Visibility
-
-- Rework Packets replay into a deliberate analysis flow: compact the Packets
-  panel, pause live packet flow, stop competing map motion, fit the full true
-  route path, wait briefly, and then force a single cinematic packet comet.
-- Keep selected packet, Plot Routes, phonebook, and packet analysis paths visible
-  at low zoom through a highlighted overview layer without exposing every idle
-  route across Canada.
-- Render packet replay paths from exact public-safe packet segments so analysis
-  still works when the main route source is stale.
-
-## 2.4.3 - Map Settings Drawer And Layer Toggles
-
-- Add a persistent Map Settings drawer with layer controls for clusters, nodes,
-  node labels, known routes, highlighted analysis paths, live packet comets,
-  packet residue, observer bursts, and message bubbles.
-- Persist settings in `mc-cartolive-map-settings`.
-- Apply layer visibility through MapLibre layout visibility or canvas settings
-  where possible so UI toggles do not rebuild node or route GeoJSON.
-
-## 2.4.4 - Packet Comet Customization
-
-- Add live packet visual controls for speed, brightness, trail length, and
-  animation style (`Comet`, `Pulse`, `Minimal`).
-- Apply those settings to live comets, forced packet replay, route residue, and
-  observer burst brightness where relevant.
-- Keep forced packet replay cinematic by default while respecting the global
-  packet speed slider.
-
-## 2.4.5 - Packets Page Production Tooling
-
-- Expand `/api/v1/public/packets` with additive public-safe filters: `iata`,
-  `payload`, `minHops`, `messageOnly`, and `q`.
-- Keep the response shape compatible, cap server page size at 1000, and use
-  server-backed filtering across the public-safe 24h window.
-- Replace the row list with a windowed packet list and add richer packet detail:
-  endpoint summary, hop/segment count, distance, payload, IATA, heard time,
-  public-safe message preview, segment list, focus, replay, and copy route IDs.
-- Verify backend tests, frontend tests/build, Docker build, live smoke,
-  `/api/v1/public/packets`, VCR replay, WebSocket, desktop browser, and mobile
-  browser checks before tagging.
-
-## 2.4.7 - Large Bug Fix And Cleanup PR
-
-- Keep the 2.4 feature set frozen while hardening Packets endpoint pressure,
-  runtime counters, packaged-image smoke checks, and frontend request safety.
-- Reduce stale Packets UI requests with debounced server-backed filters, fixed
-  payload filter choices, explicit IATA entry, and stale-generation guards.
-- Split high-risk frontend helpers around map camera, source updates, analysis
-  route rendering, and playback buffering without changing public behavior.
-- Add Vite vendor chunks so production builds avoid the large single-bundle
-  warning, then verify tests, build, Docker, GHCR/package smoke, and live smoke.
+- Continue splitting large frontend surfaces only when behavior is covered by
+  tests and the visible UI stays unchanged.
+- Add focused regression tests for any packet filtering, replay, map source, or
+  privacy boundary bug that appears in production.
+- Review screenshots and docs each release so README examples reflect the
+  current UI and do not keep obsolete release-specific assets.
+- Keep local-only artifacts, databases, and generated output out of Git and out
+  of Docker build contexts.
 
 ## Non-Goals
 
-- No broad public map feature expansion outside the documented 2.4 Packets page.
 - No public raw packet hashes, raw path hex, full public keys, resolver debug
   fields, private payloads, broker credentials, or operator config.
-- No public admin/debug page unless a later roadmap explicitly adds local-only
-  access controls.
+- No public admin/debug page without a separate access-control design.
+- No guessed map routes. Missing data should be explained by diagnostics, not
+  invented on the public map.
